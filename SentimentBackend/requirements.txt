@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+google-api-python-client
+pydantic
+python-multipart
+joblib
+scikit-learn
+Sastrawi
+langdetect
+googletrans
