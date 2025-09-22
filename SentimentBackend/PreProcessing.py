@@ -96,6 +96,7 @@ def preprocess_comments(input_path="GetComments.csv"):
         final_text = stemmed
 
         results.append({
+            "id": row.get("id", i + 1),  # preserve original ID or create new one
             "comment": comment,
             "cleanText": clean,
             "translated": translated,
@@ -111,9 +112,8 @@ def preprocess_comments(input_path="GetComments.csv"):
     # simpan hasil ke dataframe
     df_out = pd.DataFrame(results)
 
-    # simpan ke CSV dengan timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = f"PreProcessed_{timestamp}.csv"
+    # simpan ke CSV dengan nama tetap
+    output_path = "GetProcessed.csv"
     df_out.to_csv(output_path, index=False, encoding="utf-8")
 
     progress_state["status"] = "done"
