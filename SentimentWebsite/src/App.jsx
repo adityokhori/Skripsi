@@ -6,6 +6,7 @@ import DataCollectionPage from './pages/DataCollectionPage';
 import PreProcessingPage from './pages/PreProcessingPage';
 import LabellingPage from './pages/LabellingPage';
 import TFIDFPage from './pages/TFIDFPage';
+import DataSplittingPage from './pages/DataSplittingPage';
 import DataBalancingPage from './pages/DataBalancingPage';
 import NaiveBayesPage from './pages/NaiveBayesPage';
 import AnalysisPage from './pages/AnalysisPage';
@@ -19,6 +20,7 @@ export default function App() {
   const [processedData, setProcessedData] = useState([]);
   const [labelledData, setLabelledData] = useState([]);
   const [tfidfData, setTfIdfData] = useState(null);
+  const [splitData, setSplitData] = useState(null);
   const [balancedData, setBalancedData] = useState([]);
   const [sentimentResults, setSentimentResults] = useState([]);
 
@@ -39,6 +41,8 @@ export default function App() {
     setLabelledData,
     tfidfData,
     setTfIdfData,
+    splitData,
+    setSplitData,
     balancedData,
     setBalancedData,
     sentimentResults,
@@ -55,6 +59,8 @@ export default function App() {
         return <LabellingPage {...appState} />;
       case 'TF-IDF Vectorization':
         return <TFIDFPage {...appState} />;
+      case 'Data Splitting':
+        return <DataSplittingPage {...appState} />;
       case 'Data Balancing':
         return <DataBalancingPage {...appState} />;
       case 'Naïve Bayes Training':

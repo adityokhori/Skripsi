@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, FileText, BarChart3, Target, Scale, BookOpen, Youtube } from 'lucide-react';
+import { Search, FileText, BarChart3, Target, Scale, BookOpen, Youtube, Scissors } from 'lucide-react';
 
 const Sidebar = ({ activeMenu, setActiveMenu }) => {
   const menuItems = [
@@ -7,6 +7,7 @@ const Sidebar = ({ activeMenu, setActiveMenu }) => {
     { name: 'Pre Processing Data', icon: FileText },
     { name: 'Labelling Data', icon: Target },
     { name: 'TF-IDF Vectorization', icon: FileText },
+    { name: 'Data Splitting', icon: Scissors },
     { name: 'Data Balancing', icon: Scale },
     { name: 'Naïve Bayes Training', icon: BarChart3 },
     { name: 'Analisis Sentimen', icon: Search }

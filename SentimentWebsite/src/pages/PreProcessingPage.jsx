@@ -71,14 +71,6 @@ const PreProcessingPage = ({ collectedData }) => {
         <p className="text-gray-600 mb-8">
           Tahap pembersihan dan normalisasi data komentar YouTube sebelum dianalisis dengan Naïve Bayes.
         </p>
-
-        {collectedData.length === 0 ? (
-          <div className="text-center py-12">
-            <FileText className="mx-auto h-16 w-16 text-gray-400 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 mb-2">Belum Ada Data</h3>
-            <p className="text-gray-600">Silakan lakukan pengumpulan data komentar terlebih dahulu.</p>
-          </div>
-        ) : (
           <div className="space-y-6">
             {/* pipeline steps */}
             <div className="grid md:grid-cols-5 gap-4">
@@ -200,7 +192,6 @@ const PreProcessingPage = ({ collectedData }) => {
               </div>
             )}
           </div>
-        )}
       </div>
     </div>
   );
