@@ -14,6 +14,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import joblib
 import numpy as np
 from sklearn.decomposition import PCA
+from naive_bayes_utils import train_naive_bayes, compare_models, predict_new_text, get_model_info
 
 app = FastAPI()
 
@@ -327,4 +328,157 @@ def get_balanced_data(page: int = 1, page_size: int = 10):
     except Exception as e:
         return {"error": f"Gagal mengambil data balanced: {str(e)}"}
     
+
+# ==================== NAIVE BAYES ENDPOINTS ====================
+
+@app.post("/train-naive-bayes")
+def train_nb_model(approach: str = "balanced", alpha: float = 1.0, cv_folds: int = 5):
+    """
+    Training Multinomial Naive Bayes model
     
+    Parameters:
+    - approach: "imbalanced" atau "balanced"
+    - alpha: Laplace smoothing parameter (default=1.0)
+    - cv_folds: jumlah fold untuk cross-validation (default=5)
+    """
+    try:
+        if approach not in ["imbalanced", "balanced"]:
+            return {"error": "Approach harus 'imbalanced' atau 'balanced'"}
+        
+        result = train_naive_bayes(approach=approach, alpha=alpha, cv_folds=cv_folds)
+        return result
+        
+    except Exception as e:
+        return {"error": f"Gagal training Naive Bayes: {str(e)}"}
+
+
+@app.get("/model-info")
+def model_info(approach: str = "balanced"):
+    """
+    Mendapatkan informasi tentang model yang sudah dilatih
+    """
+    try:
+        info = get_model_info(approach=approach)
+        return info
+    except Exception as e:
+        return {"error": f"Gagal mengambil info model: {str(e)}"}
+
+
+@app.get("/compare-models")
+def models_comparison():
+    """
+    Membandingkan performa model imbalanced vs balanced
+    """
+    try:
+        comparison = compare_models()
+        return comparison
+    except Exception as e:
+        return {"error": f"Gagal membandingkan model: {str(e)}"}
+
+
+@app.post("/predict-sentiment")
+def predict_sentiment(text: str, approach: str = "balanced"):
+    """
+    Prediksi sentimen untuk teks baru
+    """
+    try:
+        if not text or len(text.strip()) == 0:
+            return {"error": "Teks tidak boleh kosong"}
+        
+        result = predict_new_text(text, approach=approach)
+        return result
+        
+    except Exception as e:
+        return {"error": f"Gagal prediksi sentimen: {str(e)}"}
+
+
+@app.get("/predictions")
+def get_predictions(approach: str = "balanced", page: int = 1, page_size: int = 20):
+    """
+    Mendapatkan hasil prediksi dengan pagination
+    """
+    try:
+        predictions_df = pd.read_csv(f"predictions_{approach}.csv")
+        
+        total = len(predictions_df)
+        start_idx = (page - 1) * page_size
+        end_idx = start_idx + page_size
+        
+        data_page = predictions_df.iloc[start_idx:end_idx]
+        
+        # Format data
+        formatted_data = []
+        for _, row in data_page.iterrows():
+            formatted_data.append({
+                "id": int(row["id"]) if "id" in row else 0,
+                "comment": row.get("comment", ""),
+                "finalText": row.get("finalText", ""),
+                "actual_sentiment": row["actual_sentiment"],
+                "predicted_sentiment": row["predicted_sentiment"],
+                "is_correct": bool(row["is_correct"]),
+                "confidence": round(float(row["confidence"]) * 100, 2) if "confidence" in row else 0
+            })
+        
+        return {
+            "approach": approach,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": (total + page_size - 1) // page_size,
+            "data": formatted_data
+        }
+        
+    except FileNotFoundError:
+        return {"error": f"Predictions untuk {approach} belum tersedia. Lakukan training terlebih dahulu."}
+    except Exception as e:
+        return {"error": f"Gagal mengambil predictions: {str(e)}"}
+
+
+@app.get("/analysis-summary")
+def get_analysis_summary():
+    """
+    Mendapatkan ringkasan analisis untuk kedua pendekatan
+    """
+    try:
+        summary = {
+            "imbalanced": {},
+            "balanced": {}
+        }
+        
+        for approach in ["imbalanced", "balanced"]:
+            try:
+                predictions_df = pd.read_csv(f"predictions_{approach}.csv")
+                
+                # Sentiment distribution
+                pred_dist = Counter(predictions_df["predicted_sentiment"].values)
+                
+                # Calculate accuracy
+                accuracy = (predictions_df["is_correct"].sum() / len(predictions_df)) * 100
+                
+                # Get confidence stats
+                avg_confidence = predictions_df["confidence"].mean() * 100 if "confidence" in predictions_df.columns else 0
+                
+                summary[approach] = {
+                    "exists": True,
+                    "total_predictions": len(predictions_df),
+                    "accuracy": round(accuracy, 2),
+                    "avg_confidence": round(avg_confidence, 2),
+                    "sentiment_distribution": dict(pred_dist),
+                    "sentiment_percentages": {
+                        k: round(v/len(predictions_df)*100, 2) 
+                        for k, v in pred_dist.items()
+                    },
+                    "correct_predictions": int(predictions_df["is_correct"].sum()),
+                    "incorrect_predictions": int((~predictions_df["is_correct"]).sum())
+                }
+                
+            except FileNotFoundError:
+                summary[approach] = {
+                    "exists": False,
+                    "message": f"Model {approach} belum dilatih"
+                }
+        
+        return summary
+        
+    except Exception as e:
+        return {"error": f"Gagal mengambil summary: {str(e)}"}
