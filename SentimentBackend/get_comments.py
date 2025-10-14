@@ -1,10 +1,11 @@
 # get_comments.py
 from googleapiclient.discovery import build
 import pandas as pd
+import os
 
 API_KEY = "AIzaSyBhpFQ8V1GI3VSq7UQ7pvW3oS6gsKh777s"
 
-def get_youtube_comments(video_url: str, max_comments: int = 1000, save_path="GetComments.csv"):
+def get_youtube_comments(video_url: str, max_comments: int = 10000, save_path="GetComments.csv"):
     youtube = build("youtube", "v3", developerKey=API_KEY)
 
     # Ambil ID video dari URL
@@ -79,6 +80,9 @@ def get_youtube_comments(video_url: str, max_comments: int = 1000, save_path="Ge
         if not next_page_token:
             break
     df = pd.DataFrame(comments)
-    df.to_csv(save_path, index=False, encoding="utf-8")
+    if os.path.exists(save_path):
+        df.to_csv(save_path, mode='a', header=False, index=False, encoding="utf-8")
+    else:
+            df.to_csv(save_path, index=False, encoding="utf-8")
     
     return comments

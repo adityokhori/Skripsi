@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import React from 'react';
 import { Search, FileText, BarChart3, Target, Scale, BookOpen, Youtube, Scissors } from 'lucide-react';
 

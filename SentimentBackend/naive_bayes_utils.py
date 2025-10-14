@@ -6,7 +6,42 @@ from sklearn.model_selection import cross_val_score
 import joblib
 from collections import Counter
 import os
-from Splitting_utils import load_train_data, load_test_data
+
+
+def load_train_data():
+    """
+    Load training data yang sudah di-split
+    """
+    try:
+        if not os.path.exists("tfidf_matrix_train.pkl"):
+            return None, None, None
+            
+        X_train = joblib.load("tfidf_matrix_train.pkl")
+        y_train = joblib.load("labels_train.pkl")
+        df_train = pd.read_csv("train_data.csv")
+        
+        return df_train, X_train, y_train
+    except Exception as e:
+        print(f"Error loading train data: {e}")
+        return None, None, None
+
+
+def load_test_data():
+    """
+    Load testing data yang sudah di-split
+    """
+    try:
+        if not os.path.exists("tfidf_matrix_test.pkl"):
+            return None, None, None
+            
+        X_test = joblib.load("tfidf_matrix_test.pkl")
+        y_test = joblib.load("labels_test.pkl")
+        df_test = pd.read_csv("test_data.csv")
+        
+        return df_test, X_test, y_test
+    except Exception as e:
+        print(f"Error loading test data: {e}")
+        return None, None, None
 
 
 def train_naive_bayes(approach="balanced", alpha=1.0, cv_folds=5):
@@ -22,37 +57,39 @@ def train_naive_bayes(approach="balanced", alpha=1.0, cv_folds=5):
     - Dictionary berisi hasil training dan evaluasi
     """
     try:
-        # Load data sesuai pendekatan
+        # Load test data (selalu sama untuk kedua approach)
+        df_test, X_test, y_test = load_test_data()
+        if df_test is None or X_test is None:
+            return {"error": "Data test tidak ditemukan. Lakukan splitting terlebih dahulu."}
+        
+        # Load training data sesuai pendekatan
         if approach == "balanced":
-            # Load balanced data
+            # Load balanced training data
             try:
-                X_train = joblib.load("tfidf_matrix_balanced.pkl")
-                df_train = pd.read_csv("GetProcessed_Balanced.csv")
+                if not os.path.exists("tfidf_matrix_train_balanced.pkl"):
+                    return {"error": "Data balanced tidak ditemukan. Lakukan balancing terlebih dahulu."}
                 
-                if "sentiment" not in df_train.columns:
-                    return {"error": "Data balanced tidak memiliki kolom sentiment"}
-                
-                y_train = df_train["sentiment"].values
-                
-                # Untuk test, gunakan data original yang di-split
-                df_test, X_test, y_test = load_test_data()
-                if df_test is None:
-                    return {"error": "Data test tidak ditemukan. Lakukan splitting terlebih dahulu."}
+                X_train = joblib.load("tfidf_matrix_train_balanced.pkl")
+                y_train = joblib.load("labels_train_balanced.pkl")
+                df_train = pd.read_csv("train_data_balanced.csv")
                 
             except FileNotFoundError:
                 return {"error": "Data balanced tidak ditemukan. Lakukan balancing terlebih dahulu."}
         
         else:  # imbalanced
-            # Load data dari splitting normal
+            # Load original training data
             df_train, X_train, y_train = load_train_data()
-            df_test, X_test, y_test = load_test_data()
             
-            if df_train is None or df_test is None:
-                return {"error": "Data train/test tidak ditemukan. Lakukan splitting terlebih dahulu."}
+            if df_train is None or X_train is None:
+                return {"error": "Data train tidak ditemukan. Lakukan splitting terlebih dahulu."}
         
         # Training distribution
         train_dist = Counter(y_train)
         test_dist = Counter(y_test)
+        
+        # Get sample counts using .shape[0] for sparse matrices
+        train_count = X_train.shape[0]
+        test_count = X_test.shape[0]
         
         # Initialize Multinomial Naive Bayes
         model = MultinomialNB(alpha=alpha)
@@ -106,7 +143,7 @@ def train_naive_bayes(approach="balanced", alpha=1.0, cv_folds=5):
         
         # Get prediction probabilities
         y_proba = model.predict_proba(X_test)
-        predictions_df["confidence"] = [max(proba) for proba in y_proba]
+        predictions_df["prediction_confidence"] = [max(proba) for proba in y_proba]
         
         predictions_filename = f"predictions_{approach}.csv"
         predictions_df.to_csv(predictions_filename, index=False)
@@ -117,8 +154,8 @@ def train_naive_bayes(approach="balanced", alpha=1.0, cv_folds=5):
             "model_filename": model_filename,
             "predictions_filename": predictions_filename,
             "training_info": {
-                "train_samples": len(y_train),
-                "test_samples": len(y_test),
+                "train_samples": train_count,
+                "test_samples": test_count,
                 "train_distribution": dict(train_dist),
                 "test_distribution": dict(test_dist),
                 "alpha": alpha,
@@ -140,6 +177,8 @@ def train_naive_bayes(approach="balanced", alpha=1.0, cv_folds=5):
         
     except Exception as e:
         print(f"Error training Naive Bayes: {e}")
+        import traceback
+        traceback.print_exc()
         return {"error": f"Gagal training model: {str(e)}"}
 
 
@@ -247,10 +286,13 @@ def get_model_info(approach="balanced"):
         pred_dist = Counter(predictions_df["predicted_sentiment"].values)
         actual_dist = Counter(predictions_df["actual_sentiment"].values)
         
+        # Get feature count using shape
+        n_features = model.feature_count_.shape[1]
+        
         return {
             "approach": approach,
             "classes": model.classes_.tolist(),
-            "n_features": model.feature_count_.shape[1],
+            "n_features": n_features,
             "total_predictions": len(predictions_df),
             "predicted_distribution": dict(pred_dist),
             "actual_distribution": dict(actual_dist),
@@ -265,3 +307,31 @@ def get_model_info(approach="balanced"):
         }
     except Exception as e:
         return {"error": f"Gagal mengambil info model: {str(e)}"}
+
+
+def get_confusion_matrix_data(approach="balanced"):
+    """
+    Mendapatkan data confusion matrix untuk visualisasi
+    """
+    try:
+        predictions_df = pd.read_csv(f"predictions_{approach}.csv")
+        
+        y_true = predictions_df["actual_sentiment"].values
+        y_pred = predictions_df["predicted_sentiment"].values
+        
+        # Get unique classes
+        classes = sorted(list(set(y_true)))
+        
+        # Generate confusion matrix
+        cm = confusion_matrix(y_true, y_pred, labels=classes)
+        
+        return {
+            "confusion_matrix": cm.tolist(),
+            "classes": classes,
+            "approach": approach
+        }
+        
+    except FileNotFoundError:
+        return {"error": f"Predictions untuk model {approach} tidak ditemukan"}
+    except Exception as e:
+        return {"error": f"Gagal mendapatkan confusion matrix: {str(e)}"}

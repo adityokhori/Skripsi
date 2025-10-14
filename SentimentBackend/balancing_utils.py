@@ -4,41 +4,25 @@ from sklearn.neighbors import NearestNeighbors
 from collections import Counter
 import joblib
 from sklearn.decomposition import PCA
+import os
 
-def load_labelled_and_tfidf():
+
+def load_train_data():
     """
-    Load TF-IDF matrix dan data yang sudah dilabelling
+    Load training data yang sudah di-split
     """
     try:
-        # Load TF-IDF vectorizer dan matrix
-        vectorizer = joblib.load("tfidf_vectorizer.pkl")
-        X = joblib.load("tfidf_matrix.pkl")
-        
-        # Load data yang sudah dipreprocess
-        from label_utils import get_latest_preprocessed
-        latest_file, df = get_latest_preprocessed("./")
-        
-        if latest_file is None or df is None:
+        # Cek apakah file training ada
+        if not os.path.exists("tfidf_matrix_train.pkl"):
             return None, None, None
-        
-        # Label data jika belum ada kolom sentiment
-        if "sentiment" not in df.columns:
-            from label_utils import label_text
-            sentiments = []
-            confidences = []
-            for _, row in df.iterrows():
-                text = row.get("finalText", "")
-                sentiment, confidence = label_text(text)
-                sentiments.append(sentiment)
-                confidences.append(confidence)
             
-            df["sentiment"] = sentiments
-            df["confidence"] = confidences
+        X_train = joblib.load("tfidf_matrix_train.pkl")
+        y_train = joblib.load("labels_train.pkl")
+        df_train = pd.read_csv("train_data.csv")
         
-        return df, X, vectorizer
-        
+        return df_train, X_train, y_train
     except Exception as e:
-        print(f"Error loading data: {e}")
+        print(f"Error loading train data: {e}")
         return None, None, None
 
 
@@ -112,82 +96,97 @@ def find_tomek_links(X, y):
 
 def apply_balancing(method="both", random_state=42):
     """
-    Terapkan teknik balancing pada data
+    Terapkan teknik balancing pada TRAINING data
     
     Parameters:
     - method: "undersampling", "tomek", "both", atau "none"
     """
-    df, X, vectorizer = load_labelled_and_tfidf()
+    df_train, X_train, y_train = load_train_data()
     
-    if df is None or X is None:
-        return None
-    
-    # Prepare labels
-    y = df["sentiment"].values
+    if df_train is None or X_train is None:
+        return {"error": "Training data tidak tersedia. Lakukan splitting terlebih dahulu."}
     
     # Original distribution
-    original_dist = Counter(y)
+    original_dist = Counter(y_train)
     
     if method == "none":
         # Tidak ada balancing
-        balanced_indices = list(range(len(y)))
+        balanced_indices = list(range(len(y_train)))
         
     elif method == "undersampling":
         # Hanya Random Undersampling
-        balanced_indices = random_undersampling(X, y, random_state)
+        balanced_indices = random_undersampling(X_train, y_train, random_state)
         
     elif method == "tomek":
         # Hanya Tomek Link
-        indices_to_remove = find_tomek_links(X, y)
-        balanced_indices = [i for i in range(len(y)) if i not in indices_to_remove]
+        indices_to_remove = find_tomek_links(X_train, y_train)
+        balanced_indices = [i for i in range(len(y_train)) if i not in indices_to_remove]
         
     elif method == "both":
-        # Kombinasi: Undersampling dulu, lalu Tomek Link
-        # Step 1: Random Undersampling
-        tomek_indices_to_remove = find_tomek_links(X, y)
-        tomek_indices = [i for i in range(len(y)) if i not in tomek_indices_to_remove]
+        # Kombinasi: Tomek Link dulu, lalu Random Undersampling
+        # Step 1: Tomek Link
+        tomek_indices_to_remove = find_tomek_links(X_train, y_train)
+        tomek_indices = [i for i in range(len(y_train)) if i not in tomek_indices_to_remove]
         
-        X_tomek = X[tomek_indices]
-        y_tomek = y[tomek_indices]
+        X_tomek = X_train[tomek_indices]
+        y_tomek = y_train[tomek_indices]
         
-            # Step 2: Random Undersampling pada hasil Tomek Link
+        # Step 2: Random Undersampling pada hasil Tomek Link
         us_indices = random_undersampling(X_tomek, y_tomek, random_state)
-    
+        
         # Map kembali ke original indices
         final_indices = [tomek_indices[i] for i in us_indices]
         balanced_indices = sorted(final_indices)
-
     else:
-        return None
+        return {"error": "Metode tidak valid"}
     
     # Get balanced data
-    df_balanced = df.iloc[balanced_indices].reset_index(drop=True)
-    X_balanced = X[balanced_indices]
+    df_balanced = df_train.iloc[balanced_indices].reset_index(drop=True)
+    X_balanced = X_train[balanced_indices]
+    y_balanced = y_train[balanced_indices]
     
     # New distribution
-    balanced_dist = Counter(df_balanced["sentiment"].values)
+    balanced_dist = Counter(y_balanced)
     
-    # Save balanced data
-    joblib.dump(X_balanced, "tfidf_matrix_balanced.pkl")
-    df_balanced.to_csv("GetProcessed_Balanced.csv", index=False)
+    # Save balanced training data
+    joblib.dump(X_balanced, "tfidf_matrix_train_balanced.pkl")
+    joblib.dump(y_balanced, "labels_train_balanced.pkl")
+    df_balanced.to_csv("train_data_balanced.csv", index=False)
+    
+    # Simpan indices untuk tracking
+    np.save("train_balanced_indices.npy", np.array(balanced_indices))
     
     return {
         "method": method,
         "original_distribution": dict(original_dist),
         "balanced_distribution": dict(balanced_dist),
-        "original_count": len(df),
-        "balanced_count": len(df_balanced),
-        "removed_count": len(df) - len(df_balanced),
+        "original_count": int(X_train.shape[0]),
+        "balanced_count": int(X_balanced.shape[0]),
+        "removed_count": int(X_train.shape[0] - X_balanced.shape[0]),
         "data": df_balanced[["id", "comment", "finalText", "sentiment", "confidence"]].to_dict(orient="records")
     }
 
 
-def get_visualization_points(method="pca", sample_size=2000):
-    df, X, _ = load_labelled_and_tfidf()
-    if df is None or X is None:
-        return {"error": "Data tidak tersedia"}
+def get_visualization_points(mode="original", sample_size=2000):
+    """
+    Dapatkan points untuk visualisasi PCA
     
-    y = df["sentiment"].values
+    Parameters:
+    - mode: "original" atau "balanced"
+    """
+    if mode == "balanced":
+        # Load balanced training data
+        try:
+            df = pd.read_csv("train_data_balanced.csv")
+            X = joblib.load("tfidf_matrix_train_balanced.pkl")
+            y = joblib.load("labels_train_balanced.pkl")
+        except:
+            return {"error": "Balanced data tidak tersedia"}
+    else:
+        # Load original training data
+        df, X, y = load_train_data()
+        if df is None or X is None:
+            return {"error": "Training data tidak tersedia"}
     
     # Sampling agar cepat
     if len(y) > sample_size:
@@ -195,13 +194,14 @@ def get_visualization_points(method="pca", sample_size=2000):
         X = X[idx]
         y = y[idx]
         df = df.iloc[idx]
-
+    
     # Convert ke dense
     X_dense = X.toarray() if hasattr(X, "toarray") else X
-
+    
+    # PCA untuk reduksi dimensi
     reducer = PCA(n_components=2, random_state=42)
     coords = reducer.fit_transform(X_dense)
-
+    
     points = []
     for i, (x, y_coord) in enumerate(coords):
         points.append({
@@ -209,20 +209,21 @@ def get_visualization_points(method="pca", sample_size=2000):
             "y": float(y_coord),
             "label": str(y[i])
         })
-
+    
     return {"points": points}
 
 
 def get_dataset_comparison():
     """
-    Dapatkan perbandingan dataset original vs balanced
+    Dapatkan perbandingan training dataset original vs balanced
     """
-    df, X, _ = load_labelled_and_tfidf()
+    df_train, X_train, y_train = load_train_data()
     
-    if df is None:
-        return None
+    if df_train is None:
+        return {"error": "Training data tidak tersedia"}
     
-    original_dist = Counter(df["sentiment"].values)
+    original_dist = Counter(y_train)
+    original_count = X_train.shape[0]
     
     # Cek apakah ada balanced data
     balanced_exists = False
@@ -230,18 +231,21 @@ def get_dataset_comparison():
     balanced_count = 0
     
     try:
-        df_balanced = pd.read_csv("GetProcessed_Balanced.csv")
-        balanced_dist = Counter(df_balanced["sentiment"].values)
-        balanced_count = len(df_balanced)
+        df_balanced = pd.read_csv("train_data_balanced.csv")
+        X_balanced = joblib.load("tfidf_matrix_train_balanced.pkl")
+        y_balanced = joblib.load("labels_train_balanced.pkl")
+        
+        balanced_dist = Counter(y_balanced)
+        balanced_count = X_balanced.shape[0]
         balanced_exists = True
     except:
         pass
     
     return {
         "original": {
-            "total": len(df),
+            "total": original_count,
             "distribution": dict(original_dist),
-            "percentages": {k: round(v/len(df)*100, 2) for k, v in original_dist.items()}
+            "percentages": {k: round(v/original_count*100, 2) for k, v in original_dist.items()}
         },
         "balanced": {
             "exists": balanced_exists,
@@ -250,3 +254,34 @@ def get_dataset_comparison():
             "percentages": {k: round(v/balanced_count*100, 2) for k, v in balanced_dist.items()} if balanced_count > 0 else {}
         }
     }
+
+
+def check_balanced_exists():
+    """
+    Cek apakah balanced training data sudah ada
+    """
+    try:
+        files_needed = [
+            "tfidf_matrix_train_balanced.pkl",
+            "labels_train_balanced.pkl",
+            "train_data_balanced.csv"
+        ]
+        
+        exists = all(os.path.exists(f) for f in files_needed)
+        
+        if exists:
+            X_balanced = joblib.load("tfidf_matrix_train_balanced.pkl")
+            y_balanced = joblib.load("labels_train_balanced.pkl")
+            
+            balanced_dist = Counter(y_balanced)
+            balanced_count = X_balanced.shape[0]
+            
+            return {
+                "exists": True,
+                "count": balanced_count,
+                "distribution": dict(balanced_dist)
+            }
+        else:
+            return {"exists": False}
+    except Exception as e:
+        return {"exists": False, "error": str(e)}

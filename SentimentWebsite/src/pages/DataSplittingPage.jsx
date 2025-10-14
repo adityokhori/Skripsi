@@ -71,31 +71,31 @@ const DataSplittingPage = () => {
             <div className="grid md:grid-cols-2 gap-6">
               <div className="bg-white rounded-lg p-4 border border-blue-200">
                 <p className="text-sm text-gray-600 mb-2">Total Data</p>
-                <p className="text-3xl font-bold text-blue-600">{datasetInfo.total}</p>
+                <p className="text-3xl font-bold text-blue-600">{datasetInfo.data.total}</p>
               </div>
               <div className="bg-white rounded-lg p-4 border border-blue-200">
                 <p className="text-sm text-gray-600 mb-2">Total Features (TF-IDF)</p>
-                <p className="text-3xl font-bold text-purple-600">{datasetInfo.num_features}</p>
+                <p className="text-3xl font-bold text-purple-600">{datasetInfo.data.num_features}</p>
               </div>
             </div>
             <div className="mt-4 grid grid-cols-3 gap-3">
               <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
                 <p className="text-2xl font-bold text-green-600">
-                  {datasetInfo.distribution?.Positif || 0}
+                  {datasetInfo.data.distribution?.Positif || 0}
                 </p>
-                <p className="text-xs text-green-700">Positif ({datasetInfo.percentages?.Positif?.toFixed(1)}%)</p>
+                <p className="text-xs text-green-700">Positif ({datasetInfo.data.percentages?.Positif?.toFixed(1)}%)</p>
               </div>
               <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-center">
                 <p className="text-2xl font-bold text-red-600">
-                  {datasetInfo.distribution?.Negatif || 0}
+                  {datasetInfo.data.distribution?.Negatif || 0}
                 </p>
-                <p className="text-xs text-red-700">Negatif ({datasetInfo.percentages?.Negatif?.toFixed(1)}%)</p>
+                <p className="text-xs text-red-700">Negatif ({datasetInfo.data.percentages?.Negatif?.toFixed(1)}%)</p>
               </div>
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-center">
                 <p className="text-2xl font-bold text-gray-600">
-                  {datasetInfo.distribution?.Netral || 0}
+                  {datasetInfo.data.distribution?.Netral || 0}
                 </p>
-                <p className="text-xs text-gray-700">Netral ({datasetInfo.percentages?.Netral?.toFixed(1)}%)</p>
+                <p className="text-xs text-gray-700">Netral ({datasetInfo.data.percentages?.Netral?.toFixed(1)}%)</p>
               </div>
             </div>
           </div>
@@ -213,11 +213,11 @@ const DataSplittingPage = () => {
               <div className="grid grid-cols-2 gap-4 text-xs">
                 <div className="bg-blue-50 p-3 rounded">
                   <p className="text-blue-900 font-bold mb-1">Training Set</p>
-                  <p className="text-blue-700">≈ {Math.round(datasetInfo.total * splitRatio / 100)} data</p>
+                  <p className="text-blue-700">≈ {Math.round(datasetInfo.data.total * splitRatio / 100)} data</p>
                 </div>
                 <div className="bg-purple-50 p-3 rounded">
                   <p className="text-purple-900 font-bold mb-1">Testing Set</p>
-                  <p className="text-purple-700">≈ {Math.round(datasetInfo.total * (100 - splitRatio) / 100)} data</p>
+                  <p className="text-purple-700">≈ {Math.round(datasetInfo.data.total * (100 - splitRatio) / 100)} data</p>
                 </div>
               </div>
             </div>
@@ -263,23 +263,23 @@ const DataSplittingPage = () => {
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-bold text-blue-900">Training Set</h4>
                     <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-xs font-bold">
-                      {splitResult.train_percentage}%
+                      {splitResult.data.train_percentage}%
                     </span>
                   </div>
-                  <p className="text-3xl font-bold text-blue-600 mb-4">{splitResult.train_count} data</p>
+                  <p className="text-3xl font-bold text-blue-600 mb-4">{splitResult.data.train_count} data</p>
                   
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between items-center">
                       <span className="text-green-700">Positif:</span>
-                      <span className="font-bold text-green-600">{splitResult.train_distribution?.Positif || 0}</span>
+                      <span className="font-bold text-green-600">{splitResult.data.train_distribution?.Positif || 0}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-red-700">Negatif:</span>
-                      <span className="font-bold text-red-600">{splitResult.train_distribution?.Negatif || 0}</span>
+                      <span className="font-bold text-red-600">{splitResult.data.train_distribution?.Negatif || 0}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-700">Netral:</span>
-                      <span className="font-bold text-gray-600">{splitResult.train_distribution?.Netral || 0}</span>
+                      <span className="font-bold text-gray-600">{splitResult.data.train_distribution?.Netral || 0}</span>
                     </div>
                   </div>
                 </div>
@@ -288,23 +288,23 @@ const DataSplittingPage = () => {
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-bold text-purple-900">Testing Set</h4>
                     <span className="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-xs font-bold">
-                      {splitResult.test_percentage}%
+                      {splitResult.data.test_percentage}%
                     </span>
                   </div>
-                  <p className="text-3xl font-bold text-purple-600 mb-4">{splitResult.test_count} data</p>
+                  <p className="text-3xl font-bold text-purple-600 mb-4">{splitResult.data.test_count} data</p>
                   
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between items-center">
                       <span className="text-green-700">Positif:</span>
-                      <span className="font-bold text-green-600">{splitResult.test_distribution?.Positif || 0}</span>
+                      <span className="font-bold text-green-600">{splitResult.data.test_distribution?.Positif || 0}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-red-700">Negatif:</span>
-                      <span className="font-bold text-red-600">{splitResult.test_distribution?.Negatif || 0}</span>
+                      <span className="font-bold text-red-600">{splitResult.data.test_distribution?.Negatif || 0}</span>
                     </div>
                     <div className="flex justify-between items-center">
                       <span className="text-gray-700">Netral:</span>
-                      <span className="font-bold text-gray-600">{splitResult.test_distribution?.Netral || 0}</span>
+                      <span className="font-bold text-gray-600">{splitResult.data.test_distribution?.Netral || 0}</span>
                     </div>
                   </div>
                 </div>
@@ -314,8 +314,8 @@ const DataSplittingPage = () => {
                 <div className="text-sm text-blue-800">
                   <p className="font-semibold mb-2">Konfigurasi yang Digunakan:</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <p>• Random State: <span className="font-bold">{splitResult.random_state}</span></p>
-                    <p>• Stratified: <span className="font-bold">{splitResult.stratified ? "Ya" : "Tidak"}</span></p>
+                    <p>• Random State: <span className="font-bold">{splitResult.data.random_state}</span></p>
+                    <p>• Stratified: <span className="font-bold">{splitResult.data.stratified ? "Ya" : "Tidak"}</span></p>
                   </div>
                 </div>
               </div>

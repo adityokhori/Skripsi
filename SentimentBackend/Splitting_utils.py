@@ -89,10 +89,14 @@ def split_dataset(test_size=0.2, random_state=42, stratify=True):
         # Stratified split untuk menjaga proporsi kelas
         stratify_param = y if stratify else None
         
+        # Gunakan X.shape[0] untuk mendapatkan jumlah data dari sparse matrix
+        n_samples = X.shape[0]
+        indices = np.arange(n_samples)
+        
         X_train, X_test, y_train, y_test, idx_train, idx_test = train_test_split(
             X, 
             y, 
-            range(len(y)),
+            indices,
             test_size=test_size,
             random_state=random_state,
             stratify=stratify_param
@@ -119,22 +123,42 @@ def split_dataset(test_size=0.2, random_state=42, stratify=True):
         np.save("train_indices.npy", idx_train)
         np.save("test_indices.npy", idx_test)
         
+        # Hitung total dengan cara yang aman untuk sparse matrix
+        total_samples = X.shape[0]
+        train_count = X_train.shape[0]
+        test_count = X_test.shape[0]
+        
+        # Prepare preview data dengan error handling
+        try:
+            preview_columns = ["id", "comment", "finalText", "sentiment", "confidence"]
+            available_train_cols = [col for col in preview_columns if col in df_train.columns]
+            available_test_cols = [col for col in preview_columns if col in df_test.columns]
+            
+            train_preview = df_train[available_train_cols].head(10).to_dict(orient="records")
+            test_preview = df_test[available_test_cols].head(10).to_dict(orient="records")
+        except Exception as e:
+            print(f"Warning: Could not create preview: {e}")
+            train_preview = []
+            test_preview = []
+        
         return {
             "status": "success",
-            "train_count": len(X_train),
-            "test_count": len(X_test),
-            "train_percentage": round(len(X_train) / len(y) * 100, 2),
-            "test_percentage": round(len(X_test) / len(y) * 100, 2),
+            "train_count": train_count,
+            "test_count": test_count,
+            "train_percentage": round(train_count / total_samples * 100, 2),
+            "test_percentage": round(test_count / total_samples * 100, 2),
             "train_distribution": dict(train_dist),
             "test_distribution": dict(test_dist),
             "random_state": random_state,
             "stratified": stratify,
-            "train_data_preview": df_train[["id", "comment", "finalText", "sentiment", "confidence"]].head(10).to_dict(orient="records"),
-            "test_data_preview": df_test[["id", "comment", "finalText", "sentiment", "confidence"]].head(10).to_dict(orient="records")
+            "train_data_preview": train_preview,
+            "test_data_preview": test_preview
         }
         
     except Exception as e:
         print(f"Error splitting dataset: {e}")
+        import traceback
+        traceback.print_exc()
         return {"error": f"Gagal melakukan splitting: {str(e)}"}
 
 
@@ -164,14 +188,18 @@ def check_split_exists():
             
             train_dist = Counter(y_train)
             test_dist = Counter(y_test)
-            total = len(y_train) + len(y_test)
+            
+            # Gunakan shape[0] untuk sparse matrix
+            train_count = X_train.shape[0]
+            test_count = X_test.shape[0]
+            total = train_count + test_count
             
             return {
                 "exists": True,
-                "train_count": len(X_train),
-                "test_count": len(X_test),
-                "train_percentage": round(len(X_train) / total * 100, 2),
-                "test_percentage": round(len(X_test) / total * 100, 2),
+                "train_count": train_count,
+                "test_count": test_count,
+                "train_percentage": round(train_count / total * 100, 2),
+                "test_percentage": round(test_count / total * 100, 2),
                 "train_distribution": dict(train_dist),
                 "test_distribution": dict(test_dist)
             }

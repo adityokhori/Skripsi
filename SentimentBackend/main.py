@@ -3,10 +3,10 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from get_comments import get_youtube_comments
-from balancing_utils import get_dataset_comparison, apply_balancing, load_labelled_and_tfidf
+from balancing_utils import get_dataset_comparison, apply_balancing, load_train_data
 from Splitting_utils import get_dataset_info, split_dataset, check_split_exists
-from PreProcessing import preprocess_comments, get_progress
-from typing import List
+from PreProcessing import preprocess_comments_large, get_progress
+from typing import List, Optional
 import pandas as pd
 from label_utils import label_text, get_latest_preprocessed
 import os
@@ -15,6 +15,10 @@ import joblib
 import numpy as np
 from sklearn.decomposition import PCA
 from naive_bayes_utils import train_naive_bayes, compare_models, predict_new_text, get_model_info
+from fastapi.responses import FileResponse
+from collections import Counter
+import threading
+
 
 app = FastAPI()
 
@@ -27,29 +31,99 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class RequestData(BaseModel):
     video_url: str
     max_comments: int
 
+
+class PreprocessConfig(BaseModel):
+    num_workers: int = 6
+    batch_size: int = 100
+    skip_translation: bool = False
+
+
+# ==================== COMMENTS FETCHING ====================
+
 @app.post("/get-comments")
 def fetch_comments(data: RequestData):
+    """
+    Fetch YouTube comments dengan optimasi untuk dataset besar
+    """
     try:
-        comments = get_youtube_comments(data.video_url, data.max_comments)
-        return {"comments": comments}
+        print(f"Fetching {data.max_comments} comments from {data.video_url}")
+        comments = get_youtube_comments(
+            video_url=data.video_url,
+            max_comments=data.max_comments
+        )
+        return {
+            "status": "success",
+            "total": len(comments),
+            "file": "GetComments.csv",
+            "comments": comments
+        }
     except Exception as e:
-        return {"error": str(e)}
+        print(f"Error fetching comments: {str(e)}")
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/fetch-progress")
+def fetch_progress():
+    """
+    Get progress dari fetch comments
+    """
+    return get_fetch_progress()
+
+
+# ==================== PREPROCESSING ====================
 
 @app.post("/preprocess")
-def run_preprocessing():
-    return preprocess_comments()
+def run_preprocessing(config: PreprocessConfig = PreprocessConfig()):
+    """
+    Run preprocessing dengan konfigurasi untuk i5 Gen 13 U
+    
+    Parameters:
+    - num_workers: jumlah worker threads (default 6 untuk i5 U)
+    - batch_size: ukuran batch untuk progress update
+    - skip_translation: skip translasi jika semua data Bahasa Indonesia
+    """
+    try:
+        print(f"Starting preprocessing with config: {config}")
+        
+        # Jalankan preprocessing di background thread
+        result = preprocess_comments_large(
+            input_path="GetComments.csv",
+            num_workers=config.num_workers,
+            batch_size=config.batch_size,
+            skip_translation=config.skip_translation
+        )
+        
+        return {
+            "status": "success",
+            "message": "Preprocessing selesai",
+            "file": result["file"],
+            "total_processed": len(result["data"])
+        }
+    except Exception as e:
+        print(f"Preprocessing error: {str(e)}")
+        return {"status": "error", "error": str(e)}
+
 
 @app.get("/progress")
 def progress():
+    """
+    Get current progress (bisa untuk fetch atau preprocessing)
+    """
     return get_progress()
 
-# Fixed: Changed from @app.get to @app.post to match the frontend call
+
+# ==================== AUTO LABELING ====================
+
 @app.post("/auto-label")
 def auto_label():
+    """
+    Auto label sentimen menggunakan pre-trained model
+    """
     try:
         print("Starting auto labelling process...")
         latest_file, df = get_latest_preprocessed("./")
@@ -67,7 +141,7 @@ def auto_label():
             return {"error": "File data kosong"}
 
         labelled = []
-        for _, row in df.iterrows():
+        for idx, row in df.iterrows():
             text_to_label = row["finalText"] if pd.notna(row["finalText"]) else row.get("comment", "")
             if not text_to_label:
                 continue
@@ -86,25 +160,38 @@ def auto_label():
             return {"error": "Tidak ada data valid untuk dilabeli"}
 
         print(f"Successfully labelled {len(labelled)} comments")
-        return {"filename": os.path.basename(latest_file), "data": labelled}
+        return {
+            "status": "success",
+            "filename": os.path.basename(latest_file),
+            "total_labelled": len(labelled),
+            "data": labelled
+        }
         
     except Exception as e:
         print(f"Auto label error: {str(e)}")
-        return {"error": f"Terjadi kesalahan: {str(e)}"}
-    
+        return {"status": "error", "error": f"Terjadi kesalahan: {str(e)}"}
+
+
+# ==================== TF-IDF ====================
+
 @app.post("/tfidf")
 def generate_tfidf():
+    """
+    Generate TF-IDF vectorization dari preprocessed data
+    """
     try:
         latest_file, df = get_latest_preprocessed("./")
 
         if latest_file is None or df is None:
-            return {"error": "File PreProcessed tidak ditemukan"}
+            return {"status": "error", "error": "File PreProcessed tidak ditemukan"}
 
         if "finalText" not in df.columns:
-            return {"error": "Kolom finalText tidak ditemukan"}
+            return {"status": "error", "error": "Kolom finalText tidak ditemukan"}
 
         texts = df["finalText"].astype(str).tolist()
         sentiments = df["sentiment"].tolist() if "sentiment" in df.columns else ["Unknown"] * len(df)
+
+        print(f"Generating TF-IDF for {len(texts)} documents...")
 
         vectorizer = TfidfVectorizer(
             max_features=5000,
@@ -135,6 +222,8 @@ def generate_tfidf():
                 "maxTfidf": float(row[nonzero_idx].max()) if len(nonzero_idx) > 0 else 0.0
             })
 
+        print(f"TF-IDF generation completed: {len(feature_names)} features")
+
         return {
             "status": "success",
             "total_texts": len(texts),
@@ -144,28 +233,36 @@ def generate_tfidf():
         }
 
     except Exception as e:
-        return {"error": f"Terjadi kesalahan saat TF-IDF: {str(e)}"}
-    
+        print(f"TF-IDF error: {str(e)}")
+        return {"status": "error", "error": f"Terjadi kesalahan saat TF-IDF: {str(e)}"}
+
+
 @app.get("/tfidf-matrix")
 def get_tfidf_matrix(limit_docs: int = 10, limit_features: int = 20):
+    """
+    Get TF-IDF matrix preview dengan pagination
+    """
     try:
-        # load model/vectorizer & matrix
         vectorizer = joblib.load("tfidf_vectorizer.pkl")
         X = joblib.load("tfidf_matrix.pkl")
 
         feature_names = vectorizer.get_feature_names_out().tolist()
         df_matrix = pd.DataFrame(X.toarray(), columns=feature_names)
 
-        # ambil subset
         preview = df_matrix.head(limit_docs).iloc[:, :limit_features]
         return {
+            "status": "success",
             "features": preview.columns.tolist(),
-            "data": preview.values.tolist()
+            "data": preview.values.tolist(),
+            "total_docs": df_matrix.shape[0],
+            "total_features": len(feature_names)
         }
     except Exception as e:
-        return {"error": f"Gagal mengambil matrix TF-IDF: {str(e)}"}
+        print(f"TF-IDF matrix error: {str(e)}")
+        return {"status": "error", "error": f"Gagal mengambil matrix TF-IDF: {str(e)}"}
 
-# Tambahkan endpoints ini ke main.py setelah endpoint /tfidf-matrix
+
+# ==================== DATASET BALANCING ====================
 
 @app.get("/dataset-comparison")
 def dataset_comparison():
@@ -175,10 +272,11 @@ def dataset_comparison():
     try:
         comparison = get_dataset_comparison()
         if comparison is None:
-            return {"error": "Data tidak ditemukan"}
-        return comparison
+            return {"status": "error", "error": "Data tidak ditemukan"}
+        return {**comparison, "status": "success"}
     except Exception as e:
-        return {"error": f"Gagal mengambil perbandingan dataset: {str(e)}"}
+        print(f"Dataset comparison error: {str(e)}")
+        return {"status": "error", "error": f"Gagal mengambil perbandingan dataset: {str(e)}"}
 
 
 @app.post("/apply-balancing")
@@ -191,17 +289,25 @@ def apply_data_balancing(method: str = "both"):
     """
     try:
         if method not in ["undersampling", "tomek", "both", "none"]:
-            return {"error": "Method harus salah satu dari: undersampling, tomek, both, none"}
+            return {"status": "error", "error": "Method harus salah satu dari: undersampling, tomek, both, none"}
         
+        print(f"Applying balancing with method: {method}")
         result = apply_balancing(method=method)
         
         if result is None:
-            return {"error": "Gagal melakukan balancing. Pastikan TF-IDF sudah dijalankan."}
+            return {"status": "error", "error": "Gagal melakukan balancing. Pastikan TF-IDF sudah dijalankan."}
         
-        return result
+        for record in result.get("data", []):
+            for k, v in record.items():
+                if isinstance(v, float) and (np.isnan(v) or v == np.inf or v == -np.inf):
+                    record[k] = None
+
+        return {**result, "status": "success"}
         
     except Exception as e:
-        return {"error": f"Terjadi kesalahan saat balancing: {str(e)}"}
+        print(f"Balancing error: {str(e)}")
+        return {"status": "error", "error": f"Terjadi kesalahan saat balancing: {str(e)}"}
+
 
 @app.get("/visualize-distribution")
 def visualize_distribution(mode: str = "original", method: str = "pca", sample_size: int = 2000):
@@ -209,47 +315,57 @@ def visualize_distribution(mode: str = "original", method: str = "pca", sample_s
     Endpoint untuk mengembalikan koordinat 2D hasil reduksi dimensi TF-IDF
     mode: "original" atau "balanced"
     """
-    # load data sesuai mode
-    if mode == "balanced":
-        try:
-            df = pd.read_csv("GetProcessed_Balanced.csv")
-            X = joblib.load("tfidf_matrix_balanced.pkl")
-        except:
-            return {"error": "Data balanced belum tersedia, lakukan balancing dulu"}
-    else:  # default: original
-        df, X, _ = load_labelled_and_tfidf()
-        if df is None or X is None:
-            return {"error": "Data original tidak tersedia"}
+    try:
+        # load data sesuai mode
+        if mode == "balanced":
+            try:
+                df = pd.read_csv("GetProcessed_Balanced.csv")
+                X = joblib.load("tfidf_matrix_balanced.pkl")
+            except:
+                return {"status": "error", "error": "Data balanced belum tersedia, lakukan balancing dulu"}
+        else:  # default: original
+            df, X, _ = load_train_data()
+            if df is None or X is None:
+                return {"status": "error", "error": "Data original tidak tersedia"}
 
-    y = df["sentiment"].values
+        y = df["sentiment"].values
 
-    # sampling biar ringan
-    if len(y) > sample_size:
-        idx = np.random.choice(len(y), sample_size, replace=False)
-        X = X[idx]
-        y = y[idx]
-        df = df.iloc[idx]
+        # sampling biar ringan
+        if len(y) > sample_size:
+            idx = np.random.choice(len(y), sample_size, replace=False)
+            X = X[idx]
+            y = y[idx]
+            df = df.iloc[idx]
 
-    X_dense = X.toarray() if hasattr(X, "toarray") else X
+        X_dense = X.toarray() if hasattr(X, "toarray") else X
 
-    # reduksi dimensi
-    if method.lower() == "pca":
-        reducer = PCA(n_components=2, random_state=42)
-        X_reduced = reducer.fit_transform(X_dense)
-    else:
-        return {"error": "Method hanya mendukung 'pca' untuk saat ini"}
+        # reduksi dimensi
+        if method.lower() == "pca":
+            reducer = PCA(n_components=2, random_state=42)
+            X_reduced = reducer.fit_transform(X_dense)
+        else:
+            return {"status": "error", "error": "Method hanya mendukung 'pca' untuk saat ini"}
 
-    points = []
-    for i, (x, y_coord) in enumerate(X_reduced):
-        points.append({
-            "x": float(x),
-            "y": float(y_coord),
-            "label": str(y[i])
-        })
+        points = []
+        for i, (x, y_coord) in enumerate(X_reduced):
+            points.append({
+                "x": float(x),
+                "y": float(y_coord),
+                "label": str(y[i])
+            })
 
-    return {"mode": mode, "points": points}
+        return {
+            "status": "success",
+            "mode": mode,
+            "total_points": len(points),
+            "points": points
+        }
+    except Exception as e:
+        print(f"Visualization error: {str(e)}")
+        return {"status": "error", "error": str(e)}
 
-# ==================== DATA SPLITTING ENDPOINTS ====================
+
+# ==================== DATA SPLITTING ====================
 
 @app.get("/dataset-info")
 def dataset_info():
@@ -259,10 +375,11 @@ def dataset_info():
     try:
         info = get_dataset_info()
         if info is None:
-            return {"error": "Data tidak tersedia. Pastikan TF-IDF sudah dijalankan."}
-        return info
+            return {"status": "error", "error": "Data tidak tersedia. Pastikan TF-IDF sudah dijalankan."}
+        return {"status": "success", "data": info}
     except Exception as e:
-        return {"error": f"Gagal mengambil info dataset: {str(e)}"}
+        print(f"Dataset info error: {str(e)}")
+        return {"status": "error", "error": f"Gagal mengambil info dataset: {str(e)}"}
 
 
 @app.post("/split-data")
@@ -277,17 +394,19 @@ def split_data(test_size: float = 0.2, random_state: int = 42, stratify: bool = 
     """
     try:
         if test_size <= 0 or test_size >= 1:
-            return {"error": "test_size harus antara 0 dan 1"}
+            return {"status": "error", "error": "test_size harus antara 0 dan 1"}
         
+        print(f"Splitting data with test_size={test_size}, stratify={stratify}")
         result = split_dataset(test_size=test_size, random_state=random_state, stratify=stratify)
         
         if "error" in result:
-            return result
+            return {"status": "error", "error": result["error"]}
         
-        return result
+        return {"status": "success", "data": result}
         
     except Exception as e:
-        return {"error": f"Terjadi kesalahan saat splitting: {str(e)}"}
+        print(f"Split error: {str(e)}")
+        return {"status": "error", "error": f"Terjadi kesalahan saat splitting: {str(e)}"}
 
 
 @app.get("/split-status")
@@ -297,9 +416,11 @@ def split_status():
     """
     try:
         status = check_split_exists()
-        return status
+        return {"status": "success", "data": status}
     except Exception as e:
-        return {"error": f"Gagal mengecek status split: {str(e)}"}
+        print(f"Split status error: {str(e)}")
+        return {"status": "error", "error": f"Gagal mengecek status split: {str(e)}"}
+
 
 @app.get("/balanced-data")
 def get_balanced_data(page: int = 1, page_size: int = 10):
@@ -316,20 +437,22 @@ def get_balanced_data(page: int = 1, page_size: int = 10):
         data_page = df_balanced.iloc[start_idx:end_idx]
         
         return {
+            "status": "success",
             "total": total,
             "page": page,
             "page_size": page_size,
             "total_pages": (total + page_size - 1) // page_size,
-            "data": data_page[["id", "comment", "finalText", "sentiment", "confidence"]].to_dict(orient="records")
+            "data": data_page[["id", "comment", "finalText", "sentiment"]].to_dict(orient="records") if "sentiment" in data_page.columns else data_page[["id", "comment", "finalText"]].to_dict(orient="records")
         }
         
     except FileNotFoundError:
-        return {"error": "Data balanced belum tersedia. Jalankan balancing terlebih dahulu."}
+        return {"status": "error", "error": "Data balanced belum tersedia. Jalankan balancing terlebih dahulu."}
     except Exception as e:
-        return {"error": f"Gagal mengambil data balanced: {str(e)}"}
-    
+        print(f"Get balanced data error: {str(e)}")
+        return {"status": "error", "error": f"Gagal mengambil data balanced: {str(e)}"}
 
-# ==================== NAIVE BAYES ENDPOINTS ====================
+
+# ==================== NAIVE BAYES TRAINING ====================
 
 @app.post("/train-naive-bayes")
 def train_nb_model(approach: str = "balanced", alpha: float = 1.0, cv_folds: int = 5):
@@ -343,13 +466,15 @@ def train_nb_model(approach: str = "balanced", alpha: float = 1.0, cv_folds: int
     """
     try:
         if approach not in ["imbalanced", "balanced"]:
-            return {"error": "Approach harus 'imbalanced' atau 'balanced'"}
+            return {"status": "error", "error": "Approach harus 'imbalanced' atau 'balanced'"}
         
+        print(f"Training Naive Bayes with approach={approach}, alpha={alpha}, cv_folds={cv_folds}")
         result = train_naive_bayes(approach=approach, alpha=alpha, cv_folds=cv_folds)
-        return result
+        return {**result, "status": "success"}
         
     except Exception as e:
-        return {"error": f"Gagal training Naive Bayes: {str(e)}"}
+        print(f"Naive Bayes training error: {str(e)}")
+        return {"status": "error", "error": f"Gagal training Naive Bayes: {str(e)}"}
 
 
 @app.get("/model-info")
@@ -359,9 +484,10 @@ def model_info(approach: str = "balanced"):
     """
     try:
         info = get_model_info(approach=approach)
-        return info
+        return {**info, "status": "success"}
     except Exception as e:
-        return {"error": f"Gagal mengambil info model: {str(e)}"}
+        print(f"Model info error: {str(e)}")
+        return {"status": "error", "error": f"Gagal mengambil info model: {str(e)}"}
 
 
 @app.get("/compare-models")
@@ -371,10 +497,13 @@ def models_comparison():
     """
     try:
         comparison = compare_models()
-        return comparison
+        return {"status": "success", "data": comparison}
     except Exception as e:
-        return {"error": f"Gagal membandingkan model: {str(e)}"}
+        print(f"Model comparison error: {str(e)}")
+        return {"status": "error", "error": f"Gagal membandingkan model: {str(e)}"}
 
+
+# ==================== SENTIMENT PREDICTION ====================
 
 @app.post("/predict-sentiment")
 def predict_sentiment(text: str, approach: str = "balanced"):
@@ -383,13 +512,15 @@ def predict_sentiment(text: str, approach: str = "balanced"):
     """
     try:
         if not text or len(text.strip()) == 0:
-            return {"error": "Teks tidak boleh kosong"}
+            return {"status": "error", "error": "Teks tidak boleh kosong"}
         
+        print(f"Predicting sentiment for text using {approach} approach")
         result = predict_new_text(text, approach=approach)
-        return result
+        return {"status": "success", "data": result}
         
     except Exception as e:
-        return {"error": f"Gagal prediksi sentimen: {str(e)}"}
+        print(f"Sentiment prediction error: {str(e)}")
+        return {"status": "error", "error": f"Gagal prediksi sentimen: {str(e)}"}
 
 
 @app.get("/predictions")
@@ -420,6 +551,7 @@ def get_predictions(approach: str = "balanced", page: int = 1, page_size: int = 
             })
         
         return {
+            "status": "success",
             "approach": approach,
             "total": total,
             "page": page,
@@ -429,9 +561,10 @@ def get_predictions(approach: str = "balanced", page: int = 1, page_size: int = 
         }
         
     except FileNotFoundError:
-        return {"error": f"Predictions untuk {approach} belum tersedia. Lakukan training terlebih dahulu."}
+        return {"status": "error", "error": f"Predictions untuk {approach} belum tersedia. Lakukan training terlebih dahulu."}
     except Exception as e:
-        return {"error": f"Gagal mengambil predictions: {str(e)}"}
+        print(f"Get predictions error: {str(e)}")
+        return {"status": "error", "error": f"Gagal mengambil predictions: {str(e)}"}
 
 
 @app.get("/analysis-summary")
@@ -478,7 +611,25 @@ def get_analysis_summary():
                     "message": f"Model {approach} belum dilatih"
                 }
         
-        return summary
+        return {"status": "success", "data": summary}
         
     except Exception as e:
-        return {"error": f"Gagal mengambil summary: {str(e)}"}
+        print(f"Analysis summary error: {str(e)}")
+        return {"status": "error", "error": f"Gagal mengambil summary: {str(e)}"}
+
+
+# ==================== DATA EXPORT ====================
+
+@app.get("/export-predictions")
+async def export_predictions(approach: str):
+    """
+    Export predictions as CSV file
+    """
+    try:
+        filename = f"predictions_{approach}.csv"
+        if os.path.exists(filename):
+            return FileResponse(filename, media_type="text/csv", filename=filename)
+        return {"status": "error", "error": "File not found"}
+    except Exception as e:
+        print(f"Export error: {str(e)}")
+        return {"status": "error", "error": str(e)}
