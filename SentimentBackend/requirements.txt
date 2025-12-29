@@ -8,3 +8,11 @@ scikit-learn
 Sastrawi
 langdetect
 googletrans
+pandas
+scikit-learn
+joblib
+python-multipart
+sqlalchemy
+passlib[bcrypt]
+python-jose[cryptography]
+bcrypt

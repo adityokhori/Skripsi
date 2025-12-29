@@ -1,10 +1,82 @@
 import pandas as pd
 import numpy as np
-from sklearn.neighbors import NearestNeighbors
 from collections import Counter
 import joblib
 from sklearn.decomposition import PCA
 import os
+
+# Import untuk balancing menggunakan imbalanced-learn
+try:
+    from imblearn.under_sampling import TomekLinks, RandomUnderSampler
+    from imblearn.pipeline import Pipeline as ImbPipeline
+    IMBLEARN_AVAILABLE = True
+except ImportError:
+    IMBLEARN_AVAILABLE = False
+    print("Warning: imbalanced-learn not installed. Install with: pip install imbalanced-learn")
+
+
+def load_full_data():
+    """
+    Load full labelled data dan TF-IDF matrix
+    Ensures dimensions match between X and y
+    """
+    try:
+        if not os.path.exists("Get_Labelling.csv"):
+            print("ERROR: Get_Labelling.csv not found")
+            return None, None, None
+        
+        if not os.path.exists("tfidf_matrix.pkl"):
+            print("ERROR: tfidf_matrix.pkl not found")
+            return None, None, None
+        
+        # Load data
+        df = pd.read_csv("Get_Labelling.csv")
+        X = joblib.load("tfidf_matrix.pkl")
+        
+        print(f"Initial - CSV: {len(df)} rows, TF-IDF: {X.shape[0]} rows")
+        
+        # Auto-detect label column
+        label_col = None
+        for col in ["sentiment", "Label", "label"]:
+            if col in df.columns:
+                label_col = col
+                break
+        
+        if label_col is None:
+            print(f"ERROR: No label column. Available: {df.columns.tolist()}")
+            return None, None, None
+        
+        # Get labels
+        y = df[label_col]
+        
+        # ✅ CRITICAL FIX: Match dimensions
+        if X.shape[0] != len(y):
+            print(f"⚠️ DIMENSION MISMATCH!")
+            print(f"  TF-IDF matrix: {X.shape[0]} samples")
+            print(f"  Labels: {len(y)} samples")
+            print(f"  Difference: {abs(X.shape[0] - len(y))} samples")
+            
+            # Use minimum length
+            min_length = min(X.shape[0], len(y))
+            
+            print(f"✅ Truncating both to {min_length} samples")
+            
+            X = X[:min_length]
+            y = y[:min_length]
+            df = df.iloc[:min_length]
+        
+        print(f"Final - X: {X.shape}, y: {len(y)}, df: {len(df)}")
+        print(f"Class distribution: {Counter(y)}")
+        
+        return df, X, y
+        
+    except Exception as e:
+        import traceback
+        print("="*60)
+        print("ERROR IN load_full_data:")
+        print(traceback.format_exc())
+        print("="*60)
+        return None, None, None
 
 
 def load_train_data():
@@ -26,145 +98,80 @@ def load_train_data():
         return None, None, None
 
 
-def random_undersampling(X, y, random_state=42):
+def create_balancing_pipeline(random_state=42):
     """
-    Random Undersampling: mengurangi kelas mayoritas
+    Membuat pipeline balancing: Tomek Links + Random Undersampling
     """
-    np.random.seed(random_state)
+    if not IMBLEARN_AVAILABLE:
+        raise ImportError("imbalanced-learn package is required. Install with: pip install imbalanced-learn")
     
-    # Hitung distribusi kelas
-    class_counts = Counter(y)
-    min_count = min(class_counts.values())
+    balancing_pipeline = ImbPipeline([
+        ('tomek', TomekLinks(sampling_strategy='all')),
+        ('rus', RandomUnderSampler(random_state=random_state))
+    ])
     
-    # Index untuk setiap kelas
-    indices_to_keep = []
-    
-    for class_label in class_counts.keys():
-        class_indices = np.where(y == class_label)[0]
-        
-        # Jika kelas ini adalah mayoritas, undersample
-        if len(class_indices) > min_count:
-            selected_indices = np.random.choice(class_indices, min_count, replace=False)
-        else:
-            selected_indices = class_indices
-            
-        indices_to_keep.extend(selected_indices)
-    
-    indices_to_keep = sorted(indices_to_keep)
-    
-    return indices_to_keep
+    return balancing_pipeline
 
 
-def find_tomek_links(X, y):
+def apply_balancing_to_data(X, y, random_state=42):
     """
-    Tomek Link: menemukan dan menghapus pasangan data terdekat dari kelas berbeda
-    """
-    # Convert sparse matrix to dense for nearest neighbors
-    X_dense = X.toarray() if hasattr(X, 'toarray') else X
-    
-    # Find nearest neighbor untuk setiap sample
-    nn = NearestNeighbors(n_neighbors=2)
-    nn.fit(X_dense)
-    
-    # Get nearest neighbor (index 1, karena index 0 adalah dirinya sendiri)
-    distances, indices = nn.kneighbors(X_dense)
-    
-    tomek_links = []
-    
-    for i in range(len(y)):
-        nearest_idx = indices[i][1]
-        
-        # Check apakah ini Tomek link:
-        # 1. Mereka nearest neighbor satu sama lain
-        # 2. Mereka dari kelas berbeda
-        if indices[nearest_idx][1] == i and y[i] != y[nearest_idx]:
-            tomek_links.append((i, nearest_idx))
-    
-    # Kumpulkan indices yang akan dihapus (dari kelas mayoritas)
-    class_counts = Counter(y)
-    majority_class = max(class_counts, key=class_counts.get)
-    
-    indices_to_remove = set()
-    for i, j in tomek_links:
-        if y[i] == majority_class:
-            indices_to_remove.add(i)
-        elif y[j] == majority_class:
-            indices_to_remove.add(j)
-    
-    return list(indices_to_remove)
-
-
-def apply_balancing(method="both", random_state=42):
-    """
-    Terapkan teknik balancing pada TRAINING data
+    Terapkan balancing (Tomek Links + Random Undersampling) pada data
     
     Parameters:
-    - method: "undersampling", "tomek", "both", atau "none"
+    - X: Feature matrix (TF-IDF)
+    - y: Labels
+    - random_state: Random seed
+    
+    Returns:
+    - X_balanced, y_balanced
     """
-    df_train, X_train, y_train = load_train_data()
+    if not IMBLEARN_AVAILABLE:
+        raise ImportError("imbalanced-learn package is required. Install with: pip install imbalanced-learn")
     
-    if df_train is None or X_train is None:
-        return {"error": "Training data tidak tersedia. Lakukan splitting terlebih dahulu."}
+    pipeline = create_balancing_pipeline(random_state)
+    X_balanced, y_balanced = pipeline.fit_resample(X, y)
     
-    # Original distribution
-    original_dist = Counter(y_train)
+    return X_balanced, y_balanced
+
+
+def get_balancing_info():
+    """
+    Mendapatkan informasi tentang data balancing
+    """
+    df, X, y = load_full_data()
     
-    if method == "none":
-        # Tidak ada balancing
-        balanced_indices = list(range(len(y_train)))
-        
-    elif method == "undersampling":
-        # Hanya Random Undersampling
-        balanced_indices = random_undersampling(X_train, y_train, random_state)
-        
-    elif method == "tomek":
-        # Hanya Tomek Link
-        indices_to_remove = find_tomek_links(X_train, y_train)
-        balanced_indices = [i for i in range(len(y_train)) if i not in indices_to_remove]
-        
-    elif method == "both":
-        # Kombinasi: Tomek Link dulu, lalu Random Undersampling
-        # Step 1: Tomek Link
-        tomek_indices_to_remove = find_tomek_links(X_train, y_train)
-        tomek_indices = [i for i in range(len(y_train)) if i not in tomek_indices_to_remove]
-        
-        X_tomek = X_train[tomek_indices]
-        y_tomek = y_train[tomek_indices]
-        
-        # Step 2: Random Undersampling pada hasil Tomek Link
-        us_indices = random_undersampling(X_tomek, y_tomek, random_state)
-        
-        # Map kembali ke original indices
-        final_indices = [tomek_indices[i] for i in us_indices]
-        balanced_indices = sorted(final_indices)
-    else:
-        return {"error": "Metode tidak valid"}
+    if df is None or X is None:
+        return {"error": "Data tidak tersedia. Pastikan Get_Labelling.csv dan tfidf_matrix.pkl ada."}
     
-    # Get balanced data
-    df_balanced = df_train.iloc[balanced_indices].reset_index(drop=True)
-    X_balanced = X_train[balanced_indices]
-    y_balanced = y_train[balanced_indices]
+    original_dist = Counter(y)
+    original_count = len(y)
     
-    # New distribution
-    balanced_dist = Counter(y_balanced)
-    
-    # Save balanced training data
-    joblib.dump(X_balanced, "tfidf_matrix_train_balanced.pkl")
-    joblib.dump(y_balanced, "labels_train_balanced.pkl")
-    df_balanced.to_csv("train_data_balanced.csv", index=False)
-    
-    # Simpan indices untuk tracking
-    np.save("train_balanced_indices.npy", np.array(balanced_indices))
-    
-    return {
-        "method": method,
-        "original_distribution": dict(original_dist),
-        "balanced_distribution": dict(balanced_dist),
-        "original_count": int(X_train.shape[0]),
-        "balanced_count": int(X_balanced.shape[0]),
-        "removed_count": int(X_train.shape[0] - X_balanced.shape[0]),
-        "data": df_balanced[["id", "comment", "finalText", "sentiment", "confidence"]].to_dict(orient="records")
+    info = {
+        "imblearn_available": IMBLEARN_AVAILABLE,
+        "original": {
+            "total": original_count,
+            "distribution": dict(original_dist),
+            "percentages": {k: round(v/original_count*100, 2) for k, v in original_dist.items()}
+        }
     }
+    
+    if IMBLEARN_AVAILABLE:
+        try:
+            # Simulasi balancing untuk info
+            X_balanced, y_balanced = apply_balancing_to_data(X, y)
+            balanced_dist = Counter(y_balanced)
+            balanced_count = len(y_balanced)
+            
+            info["balanced_preview"] = {
+                "total": balanced_count,
+                "distribution": dict(balanced_dist),
+                "percentages": {k: round(v/balanced_count*100, 2) for k, v in balanced_dist.items()},
+                "removed_count": original_count - balanced_count
+            }
+        except Exception as e:
+            info["balanced_preview"] = {"error": f"Gagal simulasi balancing: {str(e)}"}
+    
+    return info
 
 
 def get_visualization_points(mode="original", sample_size=2000):
@@ -173,27 +180,24 @@ def get_visualization_points(mode="original", sample_size=2000):
     
     Parameters:
     - mode: "original" atau "balanced"
+    - sample_size: jumlah sampel untuk visualisasi
     """
-    if mode == "balanced":
-        # Load balanced training data
+    df, X, y = load_full_data()
+    
+    if df is None or X is None:
+        return {"error": "Data tidak tersedia"}
+    
+    if mode == "balanced" and IMBLEARN_AVAILABLE:
         try:
-            df = pd.read_csv("train_data_balanced.csv")
-            X = joblib.load("tfidf_matrix_train_balanced.pkl")
-            y = joblib.load("labels_train_balanced.pkl")
-        except:
-            return {"error": "Balanced data tidak tersedia"}
-    else:
-        # Load original training data
-        df, X, y = load_train_data()
-        if df is None or X is None:
-            return {"error": "Training data tidak tersedia"}
+            X, y = apply_balancing_to_data(X, y)
+        except Exception as e:
+            return {"error": f"Gagal balancing: {str(e)}"}
     
     # Sampling agar cepat
     if len(y) > sample_size:
         idx = np.random.choice(len(y), sample_size, replace=False)
         X = X[idx]
         y = y[idx]
-        df = df.iloc[idx]
     
     # Convert ke dense
     X_dense = X.toarray() if hasattr(X, "toarray") else X
@@ -213,75 +217,27 @@ def get_visualization_points(mode="original", sample_size=2000):
     return {"points": points}
 
 
-def get_dataset_comparison():
+def check_requirements():
     """
-    Dapatkan perbandingan training dataset original vs balanced
+    Cek apakah semua requirements terpenuhi
     """
-    df_train, X_train, y_train = load_train_data()
-    
-    if df_train is None:
-        return {"error": "Training data tidak tersedia"}
-    
-    original_dist = Counter(y_train)
-    original_count = X_train.shape[0]
-    
-    # Cek apakah ada balanced data
-    balanced_exists = False
-    balanced_dist = {}
-    balanced_count = 0
-    
-    try:
-        df_balanced = pd.read_csv("train_data_balanced.csv")
-        X_balanced = joblib.load("tfidf_matrix_train_balanced.pkl")
-        y_balanced = joblib.load("labels_train_balanced.pkl")
-        
-        balanced_dist = Counter(y_balanced)
-        balanced_count = X_balanced.shape[0]
-        balanced_exists = True
-    except:
-        pass
-    
-    return {
-        "original": {
-            "total": original_count,
-            "distribution": dict(original_dist),
-            "percentages": {k: round(v/original_count*100, 2) for k, v in original_dist.items()}
-        },
-        "balanced": {
-            "exists": balanced_exists,
-            "total": balanced_count,
-            "distribution": dict(balanced_dist),
-            "percentages": {k: round(v/balanced_count*100, 2) for k, v in balanced_dist.items()} if balanced_count > 0 else {}
-        }
+    requirements = {
+        "imblearn_available": IMBLEARN_AVAILABLE,
+        "get_labelling_exists": os.path.exists("Get_Labelling.csv"),
+        "tfidf_matrix_exists": os.path.exists("tfidf_matrix.pkl"),
+        "tfidf_vectorizer_exists": os.path.exists("tfidf_vectorizer.pkl")
     }
-
-
-def check_balanced_exists():
-    """
-    Cek apakah balanced training data sudah ada
-    """
-    try:
-        files_needed = [
-            "tfidf_matrix_train_balanced.pkl",
-            "labels_train_balanced.pkl",
-            "train_data_balanced.csv"
-        ]
-        
-        exists = all(os.path.exists(f) for f in files_needed)
-        
-        if exists:
-            X_balanced = joblib.load("tfidf_matrix_train_balanced.pkl")
-            y_balanced = joblib.load("labels_train_balanced.pkl")
-            
-            balanced_dist = Counter(y_balanced)
-            balanced_count = X_balanced.shape[0]
-            
-            return {
-                "exists": True,
-                "count": balanced_count,
-                "distribution": dict(balanced_dist)
-            }
-        else:
-            return {"exists": False}
-    except Exception as e:
-        return {"exists": False, "error": str(e)}
+    
+    all_ready = all([
+        requirements["imblearn_available"],
+        requirements["get_labelling_exists"],
+        requirements["tfidf_matrix_exists"],
+        requirements["tfidf_vectorizer_exists"]
+    ])
+    
+    requirements["all_ready"] = all_ready
+    
+    if not requirements["imblearn_available"]:
+        requirements["install_command"] = "pip install imbalanced-learn"
+    
+    return requirements

@@ -1,27 +1,40 @@
 import React from 'react';
-import { Search, Menu } from 'lucide-react';
+import { User, LogOut, Bell } from 'lucide-react';
 
-const Header = () => {
+const Header = ({ currentUser, onLogout }) => {
   return (
-    <header className="bg-white border-b border-gray-200 px-6 py-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center space-x-4">
-          <button className="lg:hidden p-2 rounded-md text-gray-600 hover:bg-gray-100">
-            <Menu size={20} />
-          </button>
-          <div className="flex-1 max-w-md">
-            {/* <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
-              <input
-                type="text"
-                placeholder="Cari dalam penelitian..."
-                className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
-              />
-            </div> */}
-          </div>
+    <header className="bg-white shadow-sm border-b border-gray-200 sticky top-0 z-40">
+      <div className="px-6 py-4 flex justify-between items-center">
+        <div>
+          <h1 className="text-2xl font-bold bg-gradient-to-r from-purple-600 to-blue-600 bg-clip-text text-transparent">
+            Sentiment Analysis Dashboard
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">Naïve Bayes Algorithm with Data Balancing</p>
         </div>
-        <div className="text-sm text-gray-600">
-          Analisis Sentimen DANANTARA - YouTube Comments
+        
+        <div className="flex items-center gap-4">
+          <button className="relative p-2 text-gray-600 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition">
+            <Bell size={20} />
+            <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+          </button>
+
+          <div className="flex items-center gap-3 px-4 py-2 bg-gradient-to-r from-purple-50 to-blue-50 rounded-lg border border-purple-200">
+            <div className="flex items-center justify-center w-8 h-8 bg-gradient-to-r from-purple-500 to-blue-500 rounded-full">
+              <User size={18} className="text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-gray-800">{currentUser || 'Admin'}</p>
+              <p className="text-xs text-gray-500">Administrator</p>
+            </div>
+          </div>
+          
+          <button
+            onClick={onLogout}
+            className="flex items-center gap-2 px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition transform hover:scale-105"
+          >
+            <LogOut size={18} />
+            <span className="font-medium">Logout</span>
+          </button>
         </div>
       </div>
     </header>

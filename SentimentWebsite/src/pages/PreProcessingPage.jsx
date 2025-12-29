@@ -1,198 +1,226 @@
-import React, { useState, useEffect } from "react";
-import { FileText } from 'lucide-react';
+// PreProcessingPage.jsx
+import React, { useState, useEffect } from 'react';
+import { FileText, Loader, CheckCircle, AlertCircle, Settings, List } from 'lucide-react';
+import api from '../../api/axios';
 
-const PreProcessingPage = ({ collectedData }) => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0, status: "idle" });
-  const [processedData, setProcessedData] = useState([]);
+const PreProcessingPage = ({ currentUser }) => {
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  
+  // ✅ State untuk dataset selector
+  const [datasets, setDatasets] = useState([]);
+  const [loadingDatasets, setLoadingDatasets] = useState(false);
+  const [selectedDataset, setSelectedDataset] = useState('');
+  
+  const [config, setConfig] = useState({
+    input_file: '',
+    num_cores: 8,        // ✅ Default value tetap
+    batch_size: 100,     // ✅ Default value tetap
+    skip_translation: false
+  });
 
-  // pagination & sorting
-  const [rowsPerPage, setRowsPerPage] = useState(5);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
+  // ✅ Load datasets saat komponen dimuat
+  useEffect(() => {
+    loadDatasets();
+  }, []);
 
+  const loadDatasets = async () => {
+    setLoadingDatasets(true);
+    try {
+      const response = await api.get('/datasets');
+      setDatasets(response.data.datasets || []);
+      
+      // Auto-select dataset terbaru jika ada
+      if (response.data.datasets && response.data.datasets.length > 0) {
+        const latest = response.data.datasets[0];
+        console.log(response.data.datasets[0]);
+        setSelectedDataset(latest.filename);
+        setConfig(prev => ({
+          ...prev,
+          input_file: latest.filename
+        }));
+      }
+    } catch (err) {
+      console.error('Failed to load datasets:', err);
+    } finally {
+      setLoadingDatasets(false);
+    }
+  };
+
+  // ✅ Handle dataset selection
+  const handleDatasetChange = (filename) => {
+    setSelectedDataset(filename);
+    setConfig(prev => ({
+      ...prev,
+      input_file: filename
+    }));
+  };
+
+  // Progress polling
   useEffect(() => {
     let interval;
-    if (isLoading) {
+    if (loading) {
       interval = setInterval(async () => {
-        const res = await fetch("http://127.0.0.1:8000/progress");
-        const data = await res.json();
-        setProgress(data);
+        try {
+          const response = await api.get('/progress');
+          setProgress(response.data.progress || 0);
+        } catch (err) {
+          console.error('Error fetching progress:', err);
+        }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isLoading]);
-  
-  const handlePreProcessing = async () => {
-    setIsLoading(true);
+  }, [loading]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!config.input_file) {
+      setError('Please select a dataset to preprocess');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setResult(null);
+    setProgress(0);
+
     try {
-      const response = await fetch("http://127.0.0.1:8000/preprocess", { method: "POST" });
-      const data = await response.json();
-      setProcessedData(data.data);
-      setCurrentPage(1); // reset halaman
-      alert(`Selesai! Hasil disimpan di ${data.file}`);
+      const response = await api.post('/preprocess', config);
+      setResult(response.data);
     } catch (err) {
-      console.error(err);
-      alert("Error saat preprocessing");
+      setError(err.response?.data?.detail || 'Preprocessing failed');
+    } finally {
+      setLoading(false);
     }
-    setIsLoading(false);
   };
-
-  // sorting handler
-  const handleSort = (key) => {
-    let direction = "asc";
-    if (sortConfig.key === key && sortConfig.direction === "asc") {
-      direction = "desc";
-    }
-    setSortConfig({ key, direction });
-  };
-
-  const sortedData = React.useMemo(() => {
-    let sortableData = [...processedData];
-    if (sortConfig.key) {
-      sortableData.sort((a, b) => {
-        if (a[sortConfig.key] < b[sortConfig.key]) return sortConfig.direction === "asc" ? -1 : 1;
-        if (a[sortConfig.key] > b[sortConfig.key]) return sortConfig.direction === "asc" ? 1 : -1;
-        return 0;
-      });
-    }
-    return sortableData;
-  }, [processedData, sortConfig]);
-
-  // pagination
-  const totalPages = Math.ceil(sortedData.length / rowsPerPage);
-  const startIndex = (currentPage - 1) * rowsPerPage;
-  const currentData = sortedData.slice(startIndex, startIndex + rowsPerPage);
 
   return (
-    <div className="max-w-4xl">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-        <h2 className="text-xl font-semibold text-gray-800 mb-2">Pre Processing Data</h2>
-        <p className="text-gray-600 mb-8">
-          Tahap pembersihan dan normalisasi data komentar YouTube sebelum dianalisis dengan Naïve Bayes.
+    <div className="max-w-4xl mx-auto p-6">
+      {/* Header */}
+      <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <Settings className="w-8 h-8 text-blue-500" />
+          <h1 className="text-2xl font-bold text-gray-800">Data Preprocessing</h1>
+        </div>
+        <p className="text-gray-600">
+          Clean and normalize text data for analysis
         </p>
-          <div className="space-y-6">
-            {/* pipeline steps */}
-            <div className="grid md:grid-cols-5 gap-4">
-              <div className="bg-blue-50 p-4 rounded-lg">
-                <h4 className="font-medium text-blue-900">Case Folding</h4>
-                <p className="text-sm text-blue-700">Konversi ke huruf kecil</p>
-              </div>
-              <div className="bg-green-50 p-4 rounded-lg">
-                <h4 className="font-medium text-green-900">Cleaning</h4>
-                <p className="text-sm text-green-700">Hapus URL, mention, emoji</p>
-              </div>
-              <div className="bg-purple-50 p-4 rounded-lg">
-                <h4 className="font-medium text-purple-900">Tokenizing</h4>
-                <p className="text-sm text-purple-700">Pemecahan kata</p>
-              </div>
-              <div className="bg-orange-50 p-4 rounded-lg">
-                <h4 className="font-medium text-orange-900">Stopword Removal</h4>
-                <p className="text-sm text-orange-700">Hapus kata tidak penting</p>
-              </div>
-              <div className="bg-orange-50 p-4 rounded-lg">
-                <h4 className="font-medium text-orange-900">Stemming</h4>
-                <p className="text-sm text-orange-700">Mengubah berbagai bentuk kata menjadi satu bentuk dasar</p>
-              </div>
-            </div>
+      </div>
 
-            {/* button */}
-            <button
-              onClick={handlePreProcessing}
-              disabled={isLoading}
-              className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
-            >
-              {isLoading ? 'Memproses Data...' : 'Mulai Pre Processing'}
-            </button>
-
-            {/* progress bar */}
-            {isLoading && (
-              <div className="mt-4">
-                <p>Progress: {progress.current} / {progress.total}</p>
-                <div className="w-full bg-gray-200 rounded-full h-4">
-                  <div
-                    className="bg-green-600 h-4 rounded-full"
-                    style={{ width: `${progress.total ? (progress.current / progress.total) * 100 : 0}%` }}
-                  ></div>
-                </div>
+      {/* Main Form */}
+      <div className="bg-white rounded-lg shadow-md p-6">
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ✅ Dataset Selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Dataset to Preprocess
+            </label>
+            {loadingDatasets ? (
+              <div className="flex items-center gap-2 text-gray-500">
+                <Loader className="w-4 h-4 animate-spin" />
+                Loading datasets...
               </div>
+            ) : datasets.length === 0 ? (
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-yellow-800">No datasets available. Please crawl data first.</p>
+              </div>
+            ) : (
+              <select
+                value={selectedDataset}
+                onChange={(e) => handleDatasetChange(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                required
+              >
+                <option value="">-- Select Dataset --</option>
+                {datasets.map((dataset) => (
+                  <option 
+                    key={dataset.id} 
+                    value={dataset.filename}
+                    disabled={!dataset.file_exists}
+                  >
+                    {dataset.filename} ({dataset.totalrows} rows) 
+                    {!dataset.file_exists && ' - File not found'}
+                  </option>
+                ))}
+              </select>
             )}
-
-            {/* hasil preprocess */}
-            {processedData.length > 0 && (
-              <div className="mt-6">
-                <h3 className="text-lg font-semibold mb-4">Hasil Pre Processing</h3>
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
-                  <p className="text-green-800">✅ {processedData.length} komentar berhasil diproses</p>
-                </div>
-
-                {/* pilih jumlah baris */}
-                <div className="mb-4 flex items-center gap-2">
-                  <label className="text-sm text-gray-700">Tampilkan:</label>
-                  <select
-                    value={rowsPerPage}
-                    onChange={(e) => {
-                      setRowsPerPage(Number(e.target.value));
-                      setCurrentPage(1); // reset ke halaman pertama
-                    }}
-                    className="border rounded p-1 text-sm"
-                  >
-                    <option value={5}>5 baris</option>
-                    <option value={10}>10 baris</option>
-                  </select>
-                </div>
-
-                <div className="max-h-96 overflow-y-auto">
-                  <table className="w-full text-sm border">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-2 text-left cursor-pointer" onClick={() => handleSort("comment")}>
-                          Original
-                        </th>
-                        <th className="px-4 py-2 text-left cursor-pointer" onClick={() => handleSort("finalText")}>
-                          Final Text
-                        </th>
-                        <th className="px-4 py-2 text-left cursor-pointer" onClick={() => handleSort("tokens")}>
-                          Tokens
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {currentData.map((comment, idx) => (
-                        <tr key={idx} className="border-b">
-                          <td className="px-4 py-2 max-w-xs truncate">{comment.comment}</td>
-                          <td className="px-4 py-2 max-w-xs truncate">{comment.finalText}</td>
-                          <td className="px-4 py-2">{comment.tokens.length} tokens</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {/* pagination controls */}
-                <div className="flex justify-end items-center gap-2 mt-3">
-                  <button
-                    onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-                    disabled={currentPage === 1}
-                    className="px-3 py-1 border rounded disabled:opacity-50"
-                  >
-                    Previous
-                  </button>
-                  <span className="text-sm">
-                    Halaman {currentPage} dari {totalPages}
-                  </span>
-                  <button
-                    onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    className="px-3 py-1 border rounded disabled:opacity-50"
-                  >
-                    Next
-                  </button>
-                </div>
+            
+            {/* ✅ Show selected dataset info */}
+            {selectedDataset && (
+              <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Selected:</strong> {selectedDataset}
+                  {datasets.find(d => d.filename === selectedDataset) && (
+                    <span className="ml-2 text-gray-600">
+                      • {datasets.find(d => d.filename === selectedDataset).total_rows} rows
+                      • {datasets.find(d => d.filename === selectedDataset).file_size_mb} MB
+                    </span>
+                  )}
+                </p>
               </div>
             )}
           </div>
+
+          {/* ✅ INFO: num_cores dan batch_size sudah dihapus dari tampilan */}
+          {/* Nilai default otomatis: num_cores = 8, batch_size = 100 */}
+
+          {/* Skip Translation Checkbox */}
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="skip_translation"
+              checked={config.skip_translation}
+              onChange={(e) => setConfig({ ...config, skip_translation: e.target.checked })}
+              className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+            />
+            <label htmlFor="skip_translation" className="text-sm text-gray-700">
+              Skip Translation (faster processing)
+            </label>
+          </div>
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={loading || !selectedDataset}
+            className="w-full py-3 bg-blue-500 text-white rounded-lg font-semibold hover:bg-blue-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+          >
+            {loading ? (
+              <>
+                <Loader className="w-5 h-5 animate-spin" />
+                Processing... {progress}%
+              </>
+            ) : (
+              'Start Preprocessing'
+            )}
+          </button>
+        </form>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <p className="text-red-800">{error}</p>
+        </div>
+      )}
+
+      {/* Success Result */}
+      {result && (
+        <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-green-800 font-semibold">{result.message}</p>
+              <p className="text-sm text-gray-600 mt-2">
+                <strong>Output File:</strong> {result.output}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -43,7 +43,7 @@ const NaiveBayesPage = ({
     setIsLoading(true);
     
     try {
-      const response = await fetch(`http://localhost:8000/train-naive-bayes?approach=${approach}&alpha=1.0&cv_folds=5`, {
+      const response = await fetch(`http://localhost:8000/train-naive-bayes?approach=${approach}&alpha=1.0&cv_folds=10`, {
         method: 'POST'
       });
       
@@ -71,7 +71,7 @@ const NaiveBayesPage = ({
           onTrainingComplete(approach, result);
         }
         
-        alert(`Model ${approach} berhasil dilatih!\nAccuracy: ${result.performance.test_accuracy}%`);
+        alert(`Model ${approach} berhasil dilatih!\nAccuracy: ${result.performance.cv_mean_accuracy}%`);
       }
     } catch (error) {
       alert(`Gagal training model: ${error.message}`);
@@ -112,19 +112,19 @@ const NaiveBayesPage = ({
     return (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
         <div className="bg-gradient-to-br from-green-50 to-green-100 p-4 rounded-lg border border-green-200">
-          <p className="text-2xl font-bold text-green-700">{result.performance.test_accuracy}%</p>
+          <p className="text-2xl font-bold text-green-700">{result.performance.cv_mean_accuracy}%</p>
           <p className="text-sm text-green-600">Accuracy</p>
         </div>
         <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
-          <p className="text-2xl font-bold text-blue-700">{result.performance.precision}%</p>
+          <p className="text-2xl font-bold text-blue-700">{result.performance.cv_mean_precision}%</p>
           <p className="text-sm text-blue-600">Precision</p>
         </div>
         <div className="bg-gradient-to-br from-purple-50 to-purple-100 p-4 rounded-lg border border-purple-200">
-          <p className="text-2xl font-bold text-purple-700">{result.performance.recall}%</p>
+          <p className="text-2xl font-bold text-purple-700">{result.performance.cv_mean_recall}%</p>
           <p className="text-sm text-purple-600">Recall</p>
         </div>
         <div className="bg-gradient-to-br from-orange-50 to-orange-100 p-4 rounded-lg border border-orange-200">
-          <p className="text-2xl font-bold text-orange-700">{result.performance.f1_score}%</p>
+          <p className="text-2xl font-bold text-orange-700">{result.performance.cv_mean_f1}%</p>
           <p className="text-sm text-orange-600">F1-Score</p>
         </div>
       </div>
@@ -270,7 +270,7 @@ const NaiveBayesPage = ({
                   <li>• Train samples: {trainingResults.imbalanced.training_info.train_samples}</li>
                   <li>• Test samples: {trainingResults.imbalanced.training_info.test_samples}</li>
                   <li>• Cross-validation: {trainingResults.imbalanced.training_info.cv_folds}-fold</li>
-                  <li>• CV Accuracy: {trainingResults.imbalanced.performance.cv_mean}% (±{trainingResults.imbalanced.performance.cv_std}%)</li>
+                  <li>• CV Accuracy: {trainingResults.imbalanced.performance.cv_mean_accuracy}% (±{trainingResults.imbalanced.performance.cv_std_accuracy}%)</li>
                 </ul>
               </div>
               <div className="bg-white p-4 rounded border">
@@ -303,7 +303,7 @@ const NaiveBayesPage = ({
                   <li>• Train samples: {trainingResults.balanced.training_info.train_samples}</li>
                   <li>• Test samples: {trainingResults.balanced.training_info.test_samples}</li>
                   <li>• Cross-validation: {trainingResults.balanced.training_info.cv_folds}-fold</li>
-                  <li>• CV Accuracy: {trainingResults.balanced.performance.cv_mean}% (±{trainingResults.balanced.performance.cv_std}%)</li>
+                  <li>• CV Accuracy: {trainingResults.balanced.performance.cv_mean_accuracy}% (±{trainingResults.balanced.performance.cv_std_accuracy}%)</li>
                 </ul>
               </div>
               <div className="bg-white p-4 rounded border">
@@ -331,7 +331,7 @@ const NaiveBayesPage = ({
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span>Accuracy:</span>
-                    <span className="font-semibold">{trainingResults.imbalanced.performance.test_accuracy}%</span>
+                    <span className="font-semibold">{trainingResults.imbalanced.performance.cv_mean_accuracy}%</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Precision:</span>
@@ -353,7 +353,7 @@ const NaiveBayesPage = ({
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
                     <span>Accuracy:</span>
-                    <span className="font-semibold">{trainingResults.balanced.performance.test_accuracy}%</span>
+                    <span className="font-semibold">{trainingResults.balanced.performance.cv_mean_accuracy}%</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Precision:</span>
@@ -373,10 +373,10 @@ const NaiveBayesPage = ({
             
             <div className="mt-4 bg-white p-4 rounded-lg">
               <h4 className="font-semibold mb-2">Improvement Analysis</h4>
-              <p className="text-sm text-gray-600">
-                {trainingResults.balanced.performance.test_accuracy > trainingResults.imbalanced.performance.test_accuracy
-                  ? `Balanced model shows ${(trainingResults.balanced.performance.test_accuracy - trainingResults.imbalanced.performance.test_accuracy).toFixed(2)}% improvement in accuracy.`
-                  : `Imbalanced model performs ${(trainingResults.imbalanced.performance.test_accuracy - trainingResults.balanced.performance.test_accuracy).toFixed(2)}% better in accuracy.`
+              <p className="text-sm text-gray-600 ">
+                {trainingResults.balanced.performance.cv_mean_accuracy > trainingResults.imbalanced.performance.cv_mean_accuracy
+                  ? `Balanced model shows ${(trainingResults.balanced.performance.cv_mean_accuracy - trainingResults.imbalanced.performance.cv_mean_accuracy).toFixed(2)}% improvement in accuracy.`
+                  : `Imbalanced model performs ${(trainingResults.imbalanced.performance.cv_mean_accuracy - trainingResults.balanced.performance.cv_mean_accuracy).toFixed(2)}% better in accuracy.`
                 }
               </p>
             </div>

@@ -6,10 +6,8 @@ const Breadcrumb = ({ activeMenu, setActiveMenu }) => {
     { name: 'Pre Process', menu: 'Pre Processing Data' },
     { name: 'Labelling', menu: 'Labelling Data' },
     { name: 'TF-IDF', menu: 'TF-IDF Vectorization' },
-    { name: 'Splitting', menu: 'Data Splitting' },
-    { name: 'Balancing', menu: 'Data Balancing' },
-    { name: 'Training', menu: 'Naïve Bayes Training' },
-    { name: 'Analysis', menu: 'Analisis Sentimen' }
+    { name: 'Training', menu: 'Training' },
+    { name: 'Testing', menu: 'Uji Test' }
   ];
 
   const getPageTitle = () => {
@@ -18,10 +16,8 @@ const Breadcrumb = ({ activeMenu, setActiveMenu }) => {
       'Pre Processing Data': 'Pre Processing Data',
       'Labelling Data': 'Labelling Data - Manual Annotation',
       'TF-IDF Vectorization': 'TF-IDF Vectorization - Feature Extraction',
-      'Data Splitting': 'Data Splitting - Train/Test Split',
-      'Data Balancing': 'Data Balancing - Random Undersampling & Tomek Link',
-      'Naïve Bayes Training': 'Naïve Bayes Training',
-      'Analisis Sentimen': 'Analisis Sentimen'
+      'Training': 'Naive Bayes - Model Training',
+      'Uji Test': 'Uji Test - Model Testing'
     };
     return titles[activeMenu] || 'Data Collection YouTube';
   };

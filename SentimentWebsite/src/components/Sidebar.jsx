@@ -1,79 +1,76 @@
 import { useState } from 'react';
 import React from 'react';
-import { Search, FileText, BarChart3, Target, Scale, BookOpen, Youtube, Scissors } from 'lucide-react';
+import { Search, FileText, BarChart3, Target, Scale, BookOpen, Youtube, Scissors, ChevronRight, TestTube2 } from 'lucide-react';
 
 const Sidebar = ({ activeMenu, setActiveMenu }) => {
   const menuItems = [
-    { name: 'Data Collection YouTube', icon: Youtube },
-    { name: 'Pre Processing Data', icon: FileText },
-    { name: 'Labelling Data', icon: Target },
-    { name: 'TF-IDF Vectorization', icon: FileText },
-    { name: 'Data Splitting', icon: Scissors },
-    { name: 'Data Balancing', icon: Scale },
-    { name: 'Naïve Bayes Training', icon: BarChart3 },
-    { name: 'Analisis Sentimen', icon: Search }
+    { name: 'Data Collection YouTube', icon: Youtube, color: 'text-red-500' },
+    { name: 'Pre Processing Data', icon: FileText, color: 'text-blue-500' },
+    { name: 'Labelling Data', icon: Target, color: 'text-green-500' },
+    { name: 'TF-IDF Vectorization', icon: FileText, color: 'text-purple-500' },
+    { name: 'Training', icon: FileText, color: 'text-yellow-500' },
+    { name: 'Uji Test', icon: TestTube2, color: 'text-indigo-500' },
   ];
 
   return (
-    <div className="w-64 bg-gray-800 text-white flex flex-col">
-      {/* Logo */}
+    <aside className="w-72 bg-gradient-to-b from-gray-900 to-gray-800 text-white shadow-2xl flex flex-col">
       <div className="p-6 border-b border-gray-700">
-        <div className="flex items-center space-x-3">
-          <div className="w-8 h-8 bg-red-500 rounded flex items-center justify-center">
-            <Youtube className="text-white" size={16} />
-          </div>
-          <div>
-            <span className="text-lg font-semibold">DANANTARA</span>
-            <p className="text-xs text-gray-400">Sentiment Analysis</p>
-          </div>
+        <h2 className="text-2xl font-bold bg-gradient-to-r from-purple-400 to-blue-400 bg-clip-text text-transparent mb-2">
+          Sentiment Analysis
+        </h2>
+        <div className="space-y-1 text-xs text-gray-400">
+          <p className="flex items-center gap-2">
+            <BookOpen size={14} />
+            Skripsi Research
+          </p>
+          <p className="flex items-center gap-2">
+            <BarChart3 size={14} />
+            Naïve Bayes Algorithm
+          </p>
+          <p className="flex items-center gap-2">
+            <Scale size={14} />
+            Data Balancing
+          </p>
         </div>
       </div>
 
-      {/* Menu Section */}
-      <div className="flex-1 py-6">
-        <div className="px-6">
-          <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-4">
-            Research Pipeline
-          </h3>
-          <nav className="space-y-2">
-            {menuItems.map((item) => {
-              const Icon = item.icon;
-              return (
-                <button
-                  key={item.name}
-                  onClick={() => setActiveMenu(item.name)}
-                  className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors ${
-                    activeMenu === item.name
-                      ? 'bg-red-600 text-white'
-                      : 'text-gray-300 hover:bg-gray-700 hover:text-white'
-                  }`}
-                >
-                  <Icon size={20} />
-                  <span className="text-sm">{item.name}</span>
-                </button>
-              );
-            })}
-          </nav>
-        </div>
+      <nav className="flex-1 overflow-y-auto p-4 space-y-2">
+        {menuItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = activeMenu === item.name;
+          
+          return (
+            <button
+              key={item.name}
+              onClick={() => setActiveMenu(item.name)}
+              className={`
+                w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200
+                ${isActive 
+                  ? 'bg-gradient-to-r from-purple-600 to-blue-600 shadow-lg transform scale-105' 
+                  : 'hover:bg-gray-700 hover:translate-x-1'
+                }
+              `}
+            >
+              <Icon 
+                size={20} 
+                className={isActive ? 'text-white' : item.color} 
+              />
+              <span className={`flex-1 text-left text-sm font-medium ${isActive ? 'text-white' : 'text-gray-300'}`}>
+                {item.name}
+              </span>
+              {isActive && (
+                <ChevronRight size={18} className="text-white" />
+              )}
+            </button>
+          );
+        })}
+      </nav>
 
-        {/* Research Info */}
-        <div className="px-6 mt-8">
-          <h3 className="text-sm font-medium text-gray-400 uppercase tracking-wide mb-4">
-            Research Info
-          </h3>
-          <div className="text-xs text-gray-400 space-y-2">
-            <p>📚 Skripsi Research</p>
-            <p>🎯 Naïve Bayes Algorithm</p>
-            <p>⚖️ Data Balancing</p>
-            <p>📊 Sentiment Analysis</p>
-          </div>
-          <button className="w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left text-gray-300 hover:bg-gray-700 hover:text-white transition-colors mt-4">
-            <BookOpen size={20} />
-            <span className="text-sm">Dokumentasi</span>
-          </button>
-        </div>
+      <div className="p-4 border-t border-gray-700 text-xs text-gray-400 text-center">
+        <p>© 2025 Sentiment Analysis</p>
+        <p className="mt-1">Version 1.0.0</p>
       </div>
-    </div>
+    </aside>
   );
 };
 

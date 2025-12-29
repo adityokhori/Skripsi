@@ -1,167 +1,237 @@
-import React, { useState } from "react";
-import {
-  Target,
-  Loader2,
-} from "lucide-react";
+// LabellingPage.jsx
+import React, { useState, useEffect } from 'react';
+import { Target, Loader, CheckCircle, AlertCircle, PieChart } from 'lucide-react';
+import api from '../../api/axios';
 
-const LabellingPage = () => {
-  const [isLoading, setIsLoading] = useState(false);
-  const [labelledData, setLabelledData] = useState([]);
-  const [error, setError] = useState("");
-  const [pageSize, setPageSize] = useState(5);
-  const [currentPage, setCurrentPage] = useState(1);
+const LabellingPage = ({ currentUser }) => {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState('');
+  
+  // ✅ State untuk file selector
+  const [preprocessedFiles, setPreprocessedFiles] = useState([]);
+  const [loadingFiles, setLoadingFiles] = useState(false);
+  const [selectedFile, setSelectedFile] = useState('');
+  
+  const [config, setConfig] = useState({
+    input_file: '' // ✅ Will be set from selected file
+  });
 
-  const handleAutoLabel = async () => {
-    setIsLoading(true);
-    setError("");
+  // ✅ Load preprocessed files saat komponen dimuat
+  useEffect(() => {
+    loadPreprocessedFiles();
+  }, []);
+
+  const loadPreprocessedFiles = async () => {
+    setLoadingFiles(true);
     try {
-      const res = await fetch("http://127.0.0.1:8000/auto-label", {
-        method: "POST",
-      });
-      const data = await res.json();
-
-      if (data.error) {
-        setError(data.error);
-      } else {
-        setLabelledData(data.data || []);
-        setCurrentPage(1);
+      const response = await api.get('/preprocessed-files');
+      setPreprocessedFiles(response.data.files || []);
+      
+      // Auto-select file terbaru jika ada
+      if (response.data.files && response.data.files.length > 0) {
+        const latest = response.data.files[0];
+        console.log(response.data.files[0]);
+        setSelectedFile(latest.output_filename);
+        setConfig({ input_file: latest.output_filename });
       }
     } catch (err) {
-      setError("Gagal memanggil API auto-label");
+      console.error('Failed to load preprocessed files:', err);
     } finally {
-      setIsLoading(false);
+      setLoadingFiles(false);
     }
   };
 
-  // Distribusi label
-  const stats = {
-    total: labelledData.length,
-    positif: labelledData.filter((d) => d.sentiment === "Positif").length,
-    negatif: labelledData.filter((d) => d.sentiment === "Negatif").length,
-    netral: labelledData.filter((d) => d.sentiment === "Netral").length,
+  // ✅ Handle file selection
+  const handleFileChange = (filename) => {
+    setSelectedFile(filename);
+    setConfig({ input_file: filename });
   };
 
-  // Pagination
-  const totalPages = Math.ceil(labelledData.length / pageSize);
-  const startIndex = (currentPage - 1) * pageSize;
-  const currentData = labelledData.slice(startIndex, startIndex + pageSize);
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!config.input_file) {
+      setError('Please select a preprocessed file to label');
+      return;
+    }
+    
+    setLoading(true);
+    setError('');
+    setResult(null);
+
+    try {
+      const response = await api.post('/auto-label', config);
+      setResult(response.data);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Labelling failed');
+      console.log(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="max-w-6xl">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-8">
-        <div className="flex items-center space-x-3 mb-4">
-          <Target className="h-8 w-8 text-orange-500" />
-          <h2 className="text-xl font-semibold text-gray-800">
-            Labelling Data - Manual Annotation
-          </h2>
+    <div className="max-w-4xl mx-auto p-6">
+      <div className="bg-white rounded-lg shadow-lg p-6">
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-6">
+          <Target className="w-8 h-8 text-purple-500" />
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">Auto Labelling</h2>
+            <p className="text-gray-600">Automatic sentiment labeling using lexicon-based approach</p>
+          </div>
         </div>
 
-        <p className="text-gray-600 mb-8">
-          Proses pelabelan data komentar dengan sentimen (Positif, Negatif,
-          Netral) sebagai ground truth untuk training model Naive Bayes.
-        </p>
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="space-y-4">
+          {/* ✅ File Selector */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Select Preprocessed File to Label
+            </label>
+            {loadingFiles ? (
+              <div className="flex items-center gap-2 text-gray-500">
+                <Loader className="w-4 h-4 animate-spin" />
+                Loading files...
+              </div>
+            ) : preprocessedFiles.length === 0 ? (
+              <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                <p className="text-yellow-800">No preprocessed files available. Please run preprocessing first.</p>
+              </div>
+            ) : (
+              <select
+                value={selectedFile}
+                onChange={(e) => handleFileChange(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                required
+              >
+                <option value="">-- Select File --</option>
+                {preprocessedFiles.map((file) => (
+                  <option 
+                    key={file.id} 
+                    value={file.outputfilename}
+                    disabled={!file.fileexists}
+                  >
+                    {file.outputfilename} ({file.totalprocessed} rows) 
+                    {!file.fileexists && ' - File not found'}
+                  </option>
+                ))}
+              </select>
+            )}
+            
+            {/* ✅ Show selected file info */}
+            {selectedFile && (
+              <div className="mt-2 p-3 bg-purple-50 border border-purple-200 rounded-lg">
+                <p className="text-sm text-purple-800">
+                  <strong>Selected:</strong> {selectedFile}
+                  {preprocessedFiles.find(f => f.outputfilename === selectedFile) && (
+                    <span className="ml-2 text-gray-600">
+                      • {preprocessedFiles.find(f => f.outputfilename === selectedFile).totalprocessed} rows
+                      • Processed by: {preprocessedFiles.find(f => f.outputfilename === selectedFile).processedby}
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
 
-        {/* Tombol Auto Labelling */}
-        <div className="bg-blue-50 p-6 rounded-lg mb-6">
-          <h3 className="font-semibold text-blue-900 mb-3">🤖 Auto Labelling</h3>
+          {/* Info Box */}
+          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <h3 className="font-semibold text-blue-900 mb-2">How it works:</h3>
+            <ul className="text-sm text-blue-800 space-y-1">
+              <li>• Uses Indonesian sentiment lexicon dictionary</li>
+              <li>• Calculates sentiment score for each comment</li>
+              <li>• Classifies as: <strong>Positive</strong> (score &gt; 0), <strong>Negative</strong> (score &lt; 0), or <strong>Neutral</strong> (score = 0)</li>
+              <li>• Results saved to CSV file for TF-IDF processing</li>
+            </ul>
+          </div>
+
+          {/* Submit Button */}
           <button
-            onClick={handleAutoLabel}
-            disabled={isLoading}
-            className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 flex items-center justify-center gap-2"
+            type="submit"
+            disabled={loading || !selectedFile}
+            className="w-full py-3 bg-purple-500 text-white rounded-lg font-semibold hover:bg-purple-600 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
           >
-            {isLoading && <Loader2 className="animate-spin h-5 w-5" />}
-            {isLoading ? "Memproses..." : "Mulai Auto Labelling"}
+            {loading ? (
+              <>
+                <Loader className="w-5 h-5 animate-spin" />
+                Processing...
+              </>
+            ) : (
+              'Start Auto Labelling'
+            )}
           </button>
-          {error && <p className="text-red-600 mt-3">{error}</p>}
-        </div>
+        </form>
 
-        {/* Statistik */}
-        {labelledData.length > 0 && (
-          <div className="bg-gray-50 p-6 rounded-lg mb-6">
-            <h3 className="font-semibold text-gray-800 mb-4">
-              📊 Distribusi Label Sentimen
-            </h3>
-            <div className="grid md:grid-cols-4 gap-4">
-              <div className="text-center">
-                <p className="text-gray-600">Total</p>
-                <p className="font-bold">{stats.total}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-green-700">Positif</p>
-                <p className="font-bold">{stats.positif}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-red-700">Negatif</p>
-                <p className="font-bold">{stats.negatif}</p>
-              </div>
-              <div className="text-center">
-                <p className="text-yellow-700">Netral</p>
-                <p className="font-bold">{stats.netral}</p>
-              </div>
+        {/* Error Message */}
+        {error && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-red-800">Error</h3>
+              <p className="text-red-600">{error}</p>
             </div>
           </div>
         )}
 
-        {/* Tabel hasil */}
-        {labelledData.length > 0 && (
-          <div className="bg-white border rounded-lg p-4">
-            <h3 className="font-semibold text-gray-800 mb-4">
-              📝 Hasil Labelling
-            </h3>
-            <table className="w-full border-collapse border text-sm">
-              <thead>
-                <tr className="bg-gray-100 text-left">
-                  <th className="border px-2 py-1">ID</th>
-                  <th className="border px-2 py-1">Comment</th>
-                  <th className="border px-2 py-1">Final Text</th>
-                  <th className="border px-2 py-1">Sentiment</th>
-                  <th className="border px-2 py-1">Confidence</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentData.map((row) => (
-                  <tr key={row.id}>
-                    <td className="border px-2 py-1">{row.id}</td>
-                    <td className="border px-2 py-1">{row.comment}</td>
-                    <td className="border px-2 py-1">{row.finalText}</td>
-                    <td className="border px-2 py-1">{row.sentiment}</td>
-                    <td className="border px-2 py-1">{row.confidence}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        {/* Success Result */}
+        {result && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="font-semibold text-green-800">Success!</h3>
+                <p className="text-green-600">{result.message}</p>
+                
+                {/* File Info */}
+                <div className="mt-3 bg-white p-3 rounded border border-gray-200">
+                  <p className="text-sm font-medium text-gray-700">Output File:</p>
+                  <p className="text-sm font-mono text-gray-800 mt-1">{result.file}</p>
+                  <div className="mt-2 text-xs text-gray-600">
+                    <p><strong>Input:</strong> {result.input}</p>
+                    <p><strong>Labeled by:</strong> {result.labeled_by}</p>
+                  </div>
+                </div>
 
-            {/* Pagination controls */}
-            <div className="flex justify-between items-center mt-3">
-              <div>
-                <label className="mr-2">Rows per page:</label>
-                <select
-                  value={pageSize}
-                  onChange={(e) => setPageSize(Number(e.target.value))}
-                  className="border rounded px-2 py-1"
-                >
-                  <option value={5}>5</option>
-                  <option value={10}>10</option>
-                </select>
-              </div>
-              <div className="flex gap-2 items-center">
-                <button
-                  disabled={currentPage === 1}
-                  onClick={() => setCurrentPage((p) => p - 1)}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
-                >
-                  Prev
-                </button>
-                <span>
-                  Page {currentPage} of {totalPages}
-                </span>
-                <button
-                  disabled={currentPage === totalPages}
-                  onClick={() => setCurrentPage((p) => p + 1)}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
-                >
-                  Next
-                </button>
+                {/* Statistics */}
+                <div className="mt-4 grid grid-cols-4 gap-3">
+                  {/* Total */}
+                  <div className="bg-white p-3 rounded-lg border border-gray-200 text-center">
+                    <div className="flex items-center justify-center mb-1">
+                      <PieChart className="w-5 h-5 text-gray-500" />
+                    </div>
+                    <p className="text-xs text-gray-600">Total</p>
+                    <p className="text-xl font-bold text-gray-800">{result.statistics.total}</p>
+                  </div>
+
+                  {/* Positive */}
+                  <div className="bg-green-50 p-3 rounded-lg border border-green-200 text-center">
+                    <p className="text-xs text-green-700">Positive</p>
+                    <p className="text-xl font-bold text-green-800">{result.statistics.positive}</p>
+                    <p className="text-xs text-green-600">
+                      {((result.statistics.positive / result.statistics.total) * 100).toFixed(1)}%
+                    </p>
+                  </div>
+
+                  {/* Negative */}
+                  <div className="bg-red-50 p-3 rounded-lg border border-red-200 text-center">
+                    <p className="text-xs text-red-700">Negative</p>
+                    <p className="text-xl font-bold text-red-800">{result.statistics.negative}</p>
+                    <p className="text-xs text-red-600">
+                      {((result.statistics.negative / result.statistics.total) * 100).toFixed(1)}%
+                    </p>
+                  </div>
+
+                  {/* Neutral */}
+                  <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 text-center">
+                    <p className="text-xs text-gray-700">Neutral</p>
+                    <p className="text-xl font-bold text-gray-800">{result.statistics.neutral}</p>
+                    <p className="text-xs text-gray-600">
+                      {((result.statistics.neutral / result.statistics.total) * 100).toFixed(1)}%
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

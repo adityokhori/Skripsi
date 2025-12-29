@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Scale, BarChart3, TrendingUp, Zap, Filter, Database, Loader2 } from 'lucide-react';
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+import React, { useState, useEffect, useRef } from 'react';
+import { Scale, BarChart3, TrendingUp, Zap, Filter, Database, Loader2, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react';
+import * as d3 from 'd3';
 
 const DataBalancingPage = () => {
   const [isLoading, setIsLoading] = useState(false);
@@ -9,9 +9,12 @@ const DataBalancingPage = () => {
   const [balancedResult, setBalancedResult] = useState(null);
   const [selectedMethod, setSelectedMethod] = useState("both");
   const [dataMode, setDataMode] = useState("original");
-  const [points, setPoints] = useState([]);
   const [imbalancedPoints, setImbalancedPoints] = useState([]);
   const [balancedPoints, setBalancedPoints] = useState([]);
+  const [samplingInfo, setSamplingInfo] = useState({ imbalanced: null, balanced: null });
+  
+  const svgRefImbalanced = useRef(null);
+  const svgRefBalanced = useRef(null);
   
   useEffect(() => {
     fetchComparison();
@@ -31,13 +34,30 @@ const DataBalancingPage = () => {
 
   const fetchVisualization = async () => {
     try {
-      const res1 = await fetch("http://127.0.0.1:8000/visualize-distribution?mode=original");
+      // Fetch dengan parameter untuk menampilkan semua data atau sample
+      const res1 = await fetch("http://127.0.0.1:8000/visualize-distribution?mode=original&sample_size=1000");
       const data1 = await res1.json();
-      if (!data1.error) setImbalancedPoints(data1.points);
+      if (!data1.error) {
+        setImbalancedPoints(data1.points);
+        console.log("Imbalanced data:", {
+          total_data: data1.total_data,
+          visualized: data1.total_points,
+          is_sampled: data1.is_sampled,
+          distribution: data1.visualization_distribution
+        });
+      }
   
-      const res2 = await fetch("http://127.0.0.1:8000/visualize-distribution?mode=balanced");
+      const res2 = await fetch("http://127.0.0.1:8000/visualize-distribution?mode=balanced&sample_size=1000");
       const data2 = await res2.json();
-      if (!data2.error) setBalancedPoints(data2.points);
+      if (!data2.error) {
+        setBalancedPoints(data2.points);
+        console.log("Balanced data:", {
+          total_data: data2.total_data,
+          visualized: data2.total_points,
+          is_sampled: data2.is_sampled,
+          distribution: data2.visualization_distribution
+        });
+      }
     } catch (err) {
       console.error("Error fetching visualization:", err);
     }
@@ -46,7 +66,343 @@ const DataBalancingPage = () => {
   useEffect(() => {
     fetchVisualization();
   }, []);
-  
+
+  useEffect(() => {
+    if (imbalancedPoints.length > 0) {
+      renderScatterPlot(svgRefImbalanced.current, imbalancedPoints, 'imbalanced');
+    }
+  }, [imbalancedPoints]);
+
+  useEffect(() => {
+    if (balancedPoints.length > 0) {
+      renderScatterPlot(svgRefBalanced.current, balancedPoints, 'balanced');
+    }
+  }, [balancedPoints]);
+
+  const renderScatterPlot = (svgElement, data, type) => {
+    if (!svgElement || data.length === 0) return;
+
+    d3.select(svgElement).selectAll("*").remove();
+
+    const margin = { top: 40, right: 80, bottom: 60, left: 70 };
+    const width = 1100 - margin.left - margin.right;
+    const height = 550 - margin.top - margin.bottom;
+
+    const svg = d3.select(svgElement)
+      .attr("width", width + margin.left + margin.right)
+      .attr("height", height + margin.top + margin.bottom)
+      .style("background", "#fafafa")
+      .style("border-radius", "8px");
+
+    const mainGroup = svg.append("g")
+      .attr("transform", `translate(${margin.left},${margin.top})`);
+
+    const xExtent = d3.extent(data, d => d.x);
+    const yExtent = d3.extent(data, d => d.y);
+    
+    const xScale = d3.scaleLinear()
+      .domain([xExtent[0] * 1.15, xExtent[1] * 1.15])
+      .range([0, width]);
+
+    const yScale = d3.scaleLinear()
+      .domain([yExtent[0] * 1.15, yExtent[1] * 1.15])
+      .range([height, 0]);
+
+    const colorMap = {
+      "Positif": "#22c55e",
+      "Negatif": "#ef4444",
+      "Netral": "#6b7280"
+    };
+
+    const zoom = d3.zoom()
+      .scaleExtent([0.5, 20])
+      .on("zoom", (event) => {
+        zoomGroup.attr("transform", event.transform);
+      });
+
+    svg.call(zoom);
+
+    const zoomGroup = mainGroup.append("g");
+
+    // Grid
+    zoomGroup.append("g")
+      .attr("class", "grid")
+      .attr("opacity", 0.15)
+      .call(d3.axisLeft(yScale)
+        .tickSize(-width)
+        .tickFormat("")
+      )
+      .selectAll("line")
+      .attr("stroke", "#cbd5e1");
+
+    zoomGroup.append("g")
+      .attr("class", "grid")
+      .attr("opacity", 0.15)
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(xScale)
+        .tickSize(-height)
+        .tickFormat("")
+      )
+      .selectAll("line")
+      .attr("stroke", "#cbd5e1");
+
+    // Axes
+    const xAxis = zoomGroup.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(xScale).ticks(12));
+
+    const yAxis = zoomGroup.append("g")
+      .call(d3.axisLeft(yScale).ticks(12));
+
+    xAxis.selectAll("text")
+      .style("font-size", "11px")
+      .style("fill", "#475569");
+    
+    yAxis.selectAll("text")
+      .style("font-size", "11px")
+      .style("fill", "#475569");
+
+    xAxis.selectAll("line, path")
+      .style("stroke", "#94a3b8");
+    
+    yAxis.selectAll("line, path")
+      .style("stroke", "#94a3b8");
+
+    // Axis labels
+    svg.append("text")
+      .attr("text-anchor", "middle")
+      .attr("x", width / 2 + margin.left)
+      .attr("y", height + margin.top + 50)
+      .style("font-size", "15px")
+      .style("font-weight", "700")
+      .style("fill", "#1e293b")
+      .text("PCA Component 1");
+
+    svg.append("text")
+      .attr("text-anchor", "middle")
+      .attr("transform", "rotate(-90)")
+      .attr("x", -(height / 2 + margin.top))
+      .attr("y", 18)
+      .style("font-size", "15px")
+      .style("font-weight", "700")
+      .style("fill", "#1e293b")
+      .text("PCA Component 2");
+
+    // Title
+    svg.append("text")
+      .attr("text-anchor", "middle")
+      .attr("x", width / 2 + margin.left)
+      .attr("y", 25)
+      .style("font-size", "18px")
+      .style("font-weight", "bold")
+      .style("fill", type === 'imbalanced' ? "#b45309" : "#15803d")
+      .text(type === 'imbalanced' ? "📉 Original Dataset (Imbalanced)" : "✅ Balanced Dataset");
+
+    // Tooltip
+    const tooltip = d3.select("body").append("div")
+      .attr("class", "d3-tooltip-" + type)
+      .style("position", "absolute")
+      .style("visibility", "hidden")
+      .style("background-color", "rgba(15, 23, 42, 0.95)")
+      .style("color", "white")
+      .style("padding", "10px 14px")
+      .style("border-radius", "8px")
+      .style("font-size", "13px")
+      .style("pointer-events", "none")
+      .style("z-index", "10000")
+      .style("box-shadow", "0 4px 12px rgba(0,0,0,0.3)")
+      .style("font-family", "system-ui, -apple-system, sans-serif");
+
+    // Plot points
+    zoomGroup.selectAll("circle")
+      .data(data)
+      .enter()
+      .append("circle")
+      .attr("cx", d => xScale(d.x))
+      .attr("cy", d => yScale(d.y))
+      .attr("r", 4.5)
+      .attr("fill", d => colorMap[d.label])
+      .attr("opacity", 0.65)
+      .attr("stroke", "white")
+      .attr("stroke-width", 1.5)
+      .style("cursor", "pointer")
+      .on("mouseover", function(event, d) {
+        d3.select(this)
+          .transition()
+          .duration(150)
+          .attr("r", 9)
+          .attr("opacity", 1)
+          .attr("stroke-width", 2.5);
+        
+        tooltip
+          .style("visibility", "visible")
+          .html(`
+            <div style="font-weight: 600; margin-bottom: 6px; color: ${colorMap[d.label]}; font-size: 14px;">
+              ${d.label}
+            </div>
+            <div style="font-size: 12px; opacity: 0.9;">
+              <strong>X:</strong> ${d.x.toFixed(4)}<br/>
+              <strong>Y:</strong> ${d.y.toFixed(4)}
+            </div>
+          `);
+      })
+      .on("mousemove", function(event) {
+        tooltip
+          .style("top", (event.pageY - 70) + "px")
+          .style("left", (event.pageX + 15) + "px");
+      })
+      .on("mouseout", function() {
+        d3.select(this)
+          .transition()
+          .duration(150)
+          .attr("r", 4.5)
+          .attr("opacity", 0.65)
+          .attr("stroke-width", 1.5);
+        
+        tooltip.style("visibility", "hidden");
+      });
+
+    // Legend
+    const legend = svg.append("g")
+      .attr("transform", `translate(${width - 80 + margin.left}, ${margin.top})`);
+
+    const labels = ["Positif", "Negatif", "Netral"];
+    labels.forEach((label, i) => {
+      const legendRow = legend.append("g")
+        .attr("transform", `translate(0, ${i * 28})`);
+
+      legendRow.append("circle")
+        .attr("r", 7)
+        .attr("fill", colorMap[label])
+        .attr("opacity", 0.75)
+        .attr("stroke", "white")
+        .attr("stroke-width", 1.5);
+
+      legendRow.append("text")
+        .attr("x", 18)
+        .attr("y", 5)
+        .style("font-size", "13px")
+        .style("font-weight", "600")
+        .style("fill", "#334155")
+        .text(label);
+    });
+
+    // Zoom controls
+    const zoomControls = svg.append("g")
+      .attr("transform", `translate(${margin.left + 10}, ${margin.top})`);
+
+    // Zoom in
+    const zoomInButton = zoomControls.append("g")
+      .attr("cursor", "pointer")
+      .on("click", () => {
+        svg.transition().duration(300).call(zoom.scaleBy, 1.4);
+      });
+
+    zoomInButton.append("rect")
+      .attr("width", 36)
+      .attr("height", 36)
+      .attr("rx", 6)
+      .attr("fill", "#3b82f6")
+      .attr("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.1))")
+      .on("mouseover", function() {
+        d3.select(this).attr("fill", "#2563eb");
+      })
+      .on("mouseout", function() {
+        d3.select(this).attr("fill", "#3b82f6");
+      });
+
+    zoomInButton.append("text")
+      .attr("x", 18)
+      .attr("y", 24)
+      .attr("text-anchor", "middle")
+      .attr("fill", "white")
+      .attr("font-size", "20px")
+      .attr("font-weight", "bold")
+      .attr("pointer-events", "none")
+      .text("+");
+
+    // Zoom out
+    const zoomOutButton = zoomControls.append("g")
+      .attr("transform", "translate(0, 42)")
+      .attr("cursor", "pointer")
+      .on("click", () => {
+        svg.transition().duration(300).call(zoom.scaleBy, 0.7);
+      });
+
+    zoomOutButton.append("rect")
+      .attr("width", 36)
+      .attr("height", 36)
+      .attr("rx", 6)
+      .attr("fill", "#3b82f6")
+      .attr("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.1))")
+      .on("mouseover", function() {
+        d3.select(this).attr("fill", "#2563eb");
+      })
+      .on("mouseout", function() {
+        d3.select(this).attr("fill", "#3b82f6");
+      });
+
+    zoomOutButton.append("text")
+      .attr("x", 18)
+      .attr("y", 24)
+      .attr("text-anchor", "middle")
+      .attr("fill", "white")
+      .attr("font-size", "20px")
+      .attr("font-weight", "bold")
+      .attr("pointer-events", "none")
+      .text("−");
+
+    // Reset
+    const resetButton = zoomControls.append("g")
+      .attr("transform", "translate(0, 84)")
+      .attr("cursor", "pointer")
+      .on("click", () => {
+        svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+      });
+
+    resetButton.append("rect")
+      .attr("width", 36)
+      .attr("height", 36)
+      .attr("rx", 6)
+      .attr("fill", "#8b5cf6")
+      .attr("filter", "drop-shadow(0 2px 4px rgba(0,0,0,0.1))")
+      .on("mouseover", function() {
+        d3.select(this).attr("fill", "#7c3aed");
+      })
+      .on("mouseout", function() {
+        d3.select(this).attr("fill", "#8b5cf6");
+      });
+
+    resetButton.append("text")
+      .attr("x", 18)
+      .attr("y", 24)
+      .attr("text-anchor", "middle")
+      .attr("fill", "white")
+      .attr("font-size", "18px")
+      .attr("font-weight", "bold")
+      .attr("pointer-events", "none")
+      .text("⟲");
+
+    // Data count badge
+    svg.append("rect")
+      .attr("x", width + margin.left - 100)
+      .attr("y", height + margin.top + 10)
+      .attr("width", 90)
+      .attr("height", 28)
+      .attr("rx", 14)
+      .attr("fill", type === 'imbalanced' ? "#fef3c7" : "#d1fae5")
+      .attr("stroke", type === 'imbalanced' ? "#f59e0b" : "#10b981")
+      .attr("stroke-width", 2);
+
+    svg.append("text")
+      .attr("x", width + margin.left - 55)
+      .attr("y", height + margin.top + 28)
+      .attr("text-anchor", "middle")
+      .style("font-size", "13px")
+      .style("font-weight", "700")
+      .style("fill", type === 'imbalanced' ? "#92400e" : "#065f46")
+      .text(`${data.length} pts`);
+  };
   
   const handleBalancing = async () => {
     setIsLoading(true);
@@ -64,8 +420,6 @@ const DataBalancingPage = () => {
         setBalancedResult(data);
         await fetchComparison();
         setDataMode("balanced");
-  
-        // 🔥 fetch ulang scatter plot supaya grafik balanced muncul
         await fetchVisualization();
       }
     } catch (err) {
@@ -74,7 +428,6 @@ const DataBalancingPage = () => {
       setIsLoading(false);
     }
   };
-  
 
   const currentData = dataMode === "balanced" && comparison?.balanced?.exists
     ? comparison.balanced
@@ -449,7 +802,7 @@ const DataBalancingPage = () => {
             </div>
 
             <div className="bg-white border rounded-lg p-6">
-              <h4 className="font-semibold text-gray-800 mb-4">📄 Preview Data (10 data pertama)</h4>
+              <h4 className="font-semibold text-gray-800 mb-4">🔄 Preview Data (10 data pertama)</h4>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse">
                   <thead>
@@ -524,6 +877,187 @@ const DataBalancingPage = () => {
           </div>
         )}
 
+        {(imbalancedPoints.length > 0 || balancedPoints.length > 0) && (
+          <div className="mt-8 bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg border-2 border-blue-300 p-8 shadow-xl">
+            <div className="flex items-center justify-between mb-8">
+              <h3 className="text-2xl font-bold text-gray-800 flex items-center">
+                <BarChart3 className="mr-3 h-7 w-7 text-blue-600" />
+                📊 Visualisasi Distribusi Data (PCA 2D)
+              </h3>
+              <div className="flex items-center space-x-3 bg-white px-4 py-2 rounded-lg shadow-sm border border-blue-200">
+                <ZoomIn className="h-5 w-5 text-blue-600" />
+                <span className="text-sm font-medium text-gray-700">Scroll atau gunakan kontrol zoom</span>
+              </div>
+            </div>
+
+            {/* Grafik Original (Imbalanced) */}
+            <div className="mb-10 bg-white rounded-2xl border-3 border-yellow-400 shadow-2xl p-8 hover:shadow-3xl transition-shadow">
+              <div className="flex items-center justify-between mb-6">
+                <h4 className="font-bold text-xl text-yellow-900 flex items-center">
+                  <span className="w-4 h-4 bg-yellow-500 rounded-full mr-3 shadow-md"></span>
+                  📉 Original Dataset (Imbalanced)
+                </h4>
+                <div className="flex items-center space-x-3">
+                  <span className="text-sm bg-yellow-100 text-yellow-900 px-4 py-2 rounded-full font-bold border-2 border-yellow-400 shadow-sm">
+                    {imbalancedPoints.length} points (visualisasi)
+                  </span>
+                  {comparison?.original && (
+                    <span className="text-xs bg-gray-100 text-gray-700 px-3 py-1 rounded-full font-semibold border border-gray-300">
+                      Total asli: {comparison.original.total}
+                    </span>
+                  )}
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-6 flex justify-center overflow-auto border-2 border-gray-200 shadow-inner">
+                <svg ref={svgRefImbalanced}></svg>
+              </div>
+              
+              <div className="mt-6 grid grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-300 rounded-lg p-4 text-center shadow-md hover:shadow-lg transition-shadow">
+                  <div className="font-bold text-2xl text-green-700">
+                    {imbalancedPoints.filter(p => p.label === "Positif").length}
+                  </div>
+                  <div className="text-green-600 font-semibold mt-1">Positif</div>
+                  <div className="text-xs text-green-500 mt-1">
+                    {((imbalancedPoints.filter(p => p.label === "Positif").length / imbalancedPoints.length) * 100).toFixed(1)}% (dari visualisasi)
+                  </div>
+                  {comparison?.original?.distribution?.Positif && (
+                    <div className="text-xs text-gray-500 mt-1 italic">
+                      Asli: {comparison.original.distribution.Positif}
+                    </div>
+                  )}
+                </div>
+                <div className="bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-300 rounded-lg p-4 text-center shadow-md hover:shadow-lg transition-shadow">
+                  <div className="font-bold text-2xl text-red-700">
+                    {imbalancedPoints.filter(p => p.label === "Negatif").length}
+                  </div>
+                  <div className="text-red-600 font-semibold mt-1">Negatif</div>
+                  <div className="text-xs text-red-500 mt-1">
+                    {((imbalancedPoints.filter(p => p.label === "Negatif").length / imbalancedPoints.length) * 100).toFixed(1)}% (dari visualisasi)
+                  </div>
+                  {comparison?.original?.distribution?.Negatif && (
+                    <div className="text-xs text-gray-500 mt-1 italic">
+                      Asli: {comparison.original.distribution.Negatif}
+                    </div>
+                  )}
+                </div>
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 border-2 border-gray-300 rounded-lg p-4 text-center shadow-md hover:shadow-lg transition-shadow">
+                  <div className="font-bold text-2xl text-gray-700">
+                    {imbalancedPoints.filter(p => p.label === "Netral").length}
+                  </div>
+                  <div className="text-gray-600 font-semibold mt-1">Netral</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {((imbalancedPoints.filter(p => p.label === "Netral").length / imbalancedPoints.length) * 100).toFixed(1)}% (dari visualisasi)
+                  </div>
+                  {comparison?.original?.distribution?.Netral && (
+                    <div className="text-xs text-gray-500 mt-1 italic">
+                      Asli: {comparison.original.distribution.Netral}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Grafik Balanced */}
+            <div className="bg-white rounded-2xl border-3 border-green-400 shadow-2xl p-8 hover:shadow-3xl transition-shadow">
+              <div className="flex items-center justify-between mb-6">
+                <h4 className="font-bold text-xl text-green-900 flex items-center">
+                  <span className="w-4 h-4 bg-green-500 rounded-full mr-3 shadow-md"></span>
+                  ✅ Balanced Dataset
+                </h4>
+                <div className="flex items-center space-x-3">
+                  <span className="text-sm bg-green-100 text-green-900 px-4 py-2 rounded-full font-bold border-2 border-green-400 shadow-sm">
+                    {balancedPoints.length} points (visualisasi)
+                  </span>
+                  {comparison?.balanced && (
+                    <span className="text-xs bg-gray-100 text-gray-700 px-3 py-1 rounded-full font-semibold border border-gray-300">
+                      Total asli: {comparison.balanced.total}
+                    </span>
+                  )}
+                </div>
+              </div>
+              
+              <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-6 flex justify-center overflow-auto border-2 border-gray-200 shadow-inner">
+                <svg ref={svgRefBalanced}></svg>
+              </div>
+              
+              <div className="mt-6 grid grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-green-50 to-green-100 border-2 border-green-300 rounded-lg p-4 text-center shadow-md hover:shadow-lg transition-shadow">
+                  <div className="font-bold text-2xl text-green-700">
+                    {balancedPoints.filter(p => p.label === "Positif").length}
+                  </div>
+                  <div className="text-green-600 font-semibold mt-1">Positif</div>
+                  <div className="text-xs text-green-500 mt-1">
+                    {((balancedPoints.filter(p => p.label === "Positif").length / balancedPoints.length) * 100).toFixed(1)}% (dari visualisasi)
+                  </div>
+                  {comparison?.balanced?.distribution?.Positif && (
+                    <div className="text-xs text-gray-500 mt-1 italic">
+                      Asli: {comparison.balanced.distribution.Positif}
+                    </div>
+                  )}
+                </div>
+                <div className="bg-gradient-to-br from-red-50 to-red-100 border-2 border-red-300 rounded-lg p-4 text-center shadow-md hover:shadow-lg transition-shadow">
+                  <div className="font-bold text-2xl text-red-700">
+                    {balancedPoints.filter(p => p.label === "Negatif").length}
+                  </div>
+                  <div className="text-red-600 font-semibold mt-1">Negatif</div>
+                  <div className="text-xs text-red-500 mt-1">
+                    {((balancedPoints.filter(p => p.label === "Negatif").length / balancedPoints.length) * 100).toFixed(1)}% (dari visualisasi)
+                  </div>
+                  {comparison?.balanced?.distribution?.Negatif && (
+                    <div className="text-xs text-gray-500 mt-1 italic">
+                      Asli: {comparison.balanced.distribution.Negatif}
+                    </div>
+                  )}
+                </div>
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 border-2 border-gray-300 rounded-lg p-4 text-center shadow-md hover:shadow-lg transition-shadow">
+                  <div className="font-bold text-2xl text-gray-700">
+                    {balancedPoints.filter(p => p.label === "Netral").length}
+                  </div>
+                  <div className="text-gray-600 font-semibold mt-1">Netral</div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {((balancedPoints.filter(p => p.label === "Netral").length / balancedPoints.length) * 100).toFixed(1)}% (dari visualisasi)
+                  </div>
+                  {comparison?.balanced?.distribution?.Netral && (
+                    <div className="text-xs text-gray-500 mt-1 italic">
+                      Asli: {comparison.balanced.distribution.Netral}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-8 bg-gradient-to-r from-blue-50 to-indigo-50 border-2 border-blue-300 rounded-xl p-6 shadow-lg">
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0 bg-blue-500 rounded-full p-2">
+                  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-sm text-blue-900 font-semibold mb-2">💡 Informasi Teknis:</p>
+                  <p className="text-sm text-blue-800 leading-relaxed mb-3">
+                    Visualisasi menggunakan <strong>PCA (Principal Component Analysis)</strong> untuk mereduksi dimensi TF-IDF ke ruang 2D. 
+                    Setiap titik mewakili satu dokumen/komentar dengan warna berbeda untuk setiap kelas sentimen. 
+                    Gunakan <strong>mouse wheel</strong> untuk zoom in/out, atau klik tombol kontrol zoom di kiri atas grafik. 
+                    Hover pada titik untuk melihat detail koordinat.
+                  </p>
+                  <div className="bg-yellow-50 border-l-4 border-yellow-500 p-3 rounded">
+                    <p className="text-sm text-yellow-800 font-semibold mb-1">⚠️ Catatan Penting:</p>
+                    <p className="text-xs text-yellow-700 leading-relaxed">
+                      Jumlah data point yang ditampilkan dalam visualisasi PCA mungkin <strong>berbeda</strong> dengan jumlah total dataset. 
+                      Ini karena backend melakukan <strong>sampling/pengurangan data</strong> untuk optimasi performa rendering grafik. 
+                      Visualisasi ini bertujuan untuk menunjukkan <strong>distribusi dan pola clustering</strong> secara representatif, 
+                      bukan untuk menampilkan seluruh data. Untuk informasi jumlah data yang akurat, silakan lihat statistik di bagian atas halaman.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="mt-8 bg-gray-50 border rounded-lg p-6">
           <h4 className="font-semibold text-gray-800 mb-3">🔬 Penjelasan Teknis</h4>
           <div className="space-y-4 text-sm text-gray-700">
@@ -573,194 +1107,6 @@ const DataBalancingPage = () => {
                 <span>Bandingkan hasil dengan model yang dilatih menggunakan data imbalanced</span>
               </li>
             </ul>
-          </div>
-        )}
-
-{(imbalancedPoints.length > 0 || balancedPoints.length > 0) && (
-          <div className="mt-8 bg-gradient-to-br from-gray-50 to-blue-50 rounded-lg border-2 border-blue-200 p-6">
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-xl font-bold text-gray-800 flex items-center">
-                <BarChart3 className="mr-2 h-6 w-6 text-blue-600" />
-                📊 Visualisasi Distribusi Data (PCA 2D)
-              </h3>
-            </div>
-
-            <div className="grid lg:grid-cols-2 gap-6">
-              {/* Grafik Original */}
-              <div className="bg-white rounded-xl border-2 border-yellow-300 shadow-lg p-6 hover:shadow-xl transition-shadow">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-bold text-lg text-yellow-900 flex items-center">
-                    <span className="w-3 h-3 bg-yellow-500 rounded-full mr-2"></span>
-                    Original (Imbalanced)
-                  </h4>
-                  <span className="text-sm bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full font-semibold">
-                    {imbalancedPoints.length} points
-                  </span>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-2 flex justify-center">
-                  <ScatterChart width={480} height={400}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis 
-                      type="number" 
-                      dataKey="x" 
-                      name="Komponen 1" 
-                      stroke="#6b7280"
-                      tick={{ fontSize: 12 }}
-                      label={{ value: 'PCA Component 1', position: 'insideBottom', offset: -5, style: { fontSize: 12, fill: '#6b7280' } }}
-                    />
-                    <YAxis 
-                      type="number" 
-                      dataKey="y" 
-                      name="Komponen 2" 
-                      stroke="#6b7280"
-                      tick={{ fontSize: 12 }}
-                      label={{ value: 'PCA Component 2', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6b7280' } }}
-                    />
-                    <Tooltip 
-                      cursor={{ strokeDasharray: '3 3' }}
-                      contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', border: '1px solid #d1d5db', borderRadius: '8px' }}
-                      labelFormatter={(value) => `Point: ${value}`}
-                    />
-                    <Legend 
-                      wrapperStyle={{ paddingTop: '10px' }}
-                      iconType="circle"
-                    />
-                    <Scatter 
-                      name="Positif" 
-                      data={imbalancedPoints.filter(p => p.label === "Positif")} 
-                      fill="#22c55e"
-                      fillOpacity={0.7}
-                      shape="circle"
-                    />
-                    <Scatter 
-                      name="Negatif" 
-                      data={imbalancedPoints.filter(p => p.label === "Negatif")} 
-                      fill="#ef4444"
-                      fillOpacity={0.7}
-                      shape="circle"
-                    />
-                    <Scatter 
-                      name="Netral" 
-                      data={imbalancedPoints.filter(p => p.label === "Netral")} 
-                      fill="#6b7280"
-                      fillOpacity={0.7}
-                      shape="circle"
-                    />
-                  </ScatterChart>
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                  <div className="bg-green-50 border border-green-200 rounded p-2 text-center">
-                    <div className="font-bold text-green-700">
-                      {imbalancedPoints.filter(p => p.label === "Positif").length}
-                    </div>
-                    <div className="text-green-600">Positif</div>
-                  </div>
-                  <div className="bg-red-50 border border-red-200 rounded p-2 text-center">
-                    <div className="font-bold text-red-700">
-                      {imbalancedPoints.filter(p => p.label === "Negatif").length}
-                    </div>
-                    <div className="text-red-600">Negatif</div>
-                  </div>
-                  <div className="bg-gray-50 border border-gray-200 rounded p-2 text-center">
-                    <div className="font-bold text-gray-700">
-                      {imbalancedPoints.filter(p => p.label === "Netral").length}
-                    </div>
-                    <div className="text-gray-600">Netral</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Grafik Balanced */}
-              <div className="bg-white rounded-xl border-2 border-green-300 shadow-lg p-6 hover:shadow-xl transition-shadow">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="font-bold text-lg text-green-900 flex items-center">
-                    <span className="w-3 h-3 bg-green-500 rounded-full mr-2"></span>
-                    Balanced
-                  </h4>
-                  <span className="text-sm bg-green-100 text-green-800 px-3 py-1 rounded-full font-semibold">
-                    {balancedPoints.length} points
-                  </span>
-                </div>
-                <div className="bg-gray-50 rounded-lg p-2 flex justify-center">
-                  <ScatterChart width={480} height={400}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                    <XAxis 
-                      type="number" 
-                      dataKey="x" 
-                      name="Komponen 1" 
-                      stroke="#6b7280"
-                      tick={{ fontSize: 12 }}
-                      label={{ value: 'PCA Component 1', position: 'insideBottom', offset: -5, style: { fontSize: 12, fill: '#6b7280' } }}
-                    />
-                    <YAxis 
-                      type="number" 
-                      dataKey="y" 
-                      name="Komponen 2" 
-                      stroke="#6b7280"
-                      tick={{ fontSize: 12 }}
-                      label={{ value: 'PCA Component 2', angle: -90, position: 'insideLeft', style: { fontSize: 12, fill: '#6b7280' } }}
-                    />
-                    <Tooltip 
-                      cursor={{ strokeDasharray: '3 3' }}
-                      contentStyle={{ backgroundColor: 'rgba(255, 255, 255, 0.95)', border: '1px solid #d1d5db', borderRadius: '8px' }}
-                      labelFormatter={(value) => `Point: ${value}`}
-                    />
-                    <Legend 
-                      wrapperStyle={{ paddingTop: '10px' }}
-                      iconType="circle"
-                    />
-                    <Scatter 
-                      name="Positif" 
-                      data={balancedPoints.filter(p => p.label === "Positif")} 
-                      fill="#22c55e"
-                      fillOpacity={0.7}
-                      shape="circle"
-                    />
-                    <Scatter 
-                      name="Negatif" 
-                      data={balancedPoints.filter(p => p.label === "Negatif")} 
-                      fill="#ef4444"
-                      fillOpacity={0.7}
-                      shape="circle"
-                    />
-                    <Scatter 
-                      name="Netral" 
-                      data={balancedPoints.filter(p => p.label === "Netral")} 
-                      fill="#6b7280"
-                      fillOpacity={0.7}
-                      shape="circle"
-                    />
-                  </ScatterChart>
-                </div>
-                <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-                  <div className="bg-green-50 border border-green-200 rounded p-2 text-center">
-                    <div className="font-bold text-green-700">
-                      {balancedPoints.filter(p => p.label === "Positif").length}
-                    </div>
-                    <div className="text-green-600">Positif</div>
-                  </div>
-                  <div className="bg-red-50 border border-red-200 rounded p-2 text-center">
-                    <div className="font-bold text-red-700">
-                      {balancedPoints.filter(p => p.label === "Negatif").length}
-                    </div>
-                    <div className="text-red-600">Negatif</div>
-                  </div>
-                  <div className="bg-gray-50 border border-gray-200 rounded p-2 text-center">
-                    <div className="font-bold text-gray-700">
-                      {balancedPoints.filter(p => p.label === "Netral").length}
-                    </div>
-                    <div className="text-gray-600">Netral</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-4">
-              <p className="text-sm text-blue-800">
-                <span className="font-semibold">💡 Informasi:</span> Visualisasi menggunakan PCA (Principal Component Analysis) untuk mereduksi dimensi TF-IDF ke 2D. 
-                Setiap titik mewakili satu dokumen/komentar. Perbedaan yang terlihat menunjukkan efek dari teknik balancing dalam mengurangi dominasi kelas mayoritas.
-              </p>
-            </div>
           </div>
         )}
       </div>
