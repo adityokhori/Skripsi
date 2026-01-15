@@ -1,5 +1,25 @@
-.env
+# Python
 __pycache__/
-*.pyc
-*.db
+*.py[cod]
+*.so
+.Python
+env/
 venv/
+
+# Environment
+.env
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Models & Data
+models/
+uploads/
+*.pkl
+*.csv
+
+# IDE
+.vscode/
+.idea/

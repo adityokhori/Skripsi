@@ -7,12 +7,11 @@ joblib
 scikit-learn
 Sastrawi
 langdetect
-googletrans
+googletrans==3.1.0a0
 pandas
-scikit-learn
-joblib
-python-multipart
 sqlalchemy
 passlib[bcrypt]
 python-jose[cryptography]
 bcrypt
+psycopg2-binary
+python-dotenv
